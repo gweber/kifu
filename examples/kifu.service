@@ -1,0 +1,13 @@
+# A user service: systemctl --user enable --now kifu.service
+# (copy to ~/.config/systemd/user/, adjust ExecStart to where kifu is installed)
+[Unit]
+Description=kifu web app and API
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/kifu serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

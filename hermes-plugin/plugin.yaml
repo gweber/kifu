@@ -1,0 +1,23 @@
+# kifu for Hermes: the ideas left behind in your Claude Code sessions, inside Hermes.
+#
+# `name` is what plugins.enabled matches and what the dashboard mounts the API under
+# (/api/plugins/kifu/), so it must stay identical to dashboard/manifest.json "name" and to
+# the API constant in dashboard/dist/index.js.
+#
+# The plugin holds no data. It calls a running kifu service (`kifu serve`); set its address
+# with plugins.entries.kifu.settings.url or $KIFU_URL.
+name: kifu
+version: "0.1.0"
+description: "The ideas left behind in your Claude Code sessions: an Ideas tab to triage open ideas and see how you work, agent tools to ask where an idea started, a /kifu command, and a weekly digest of ideas that went quiet."
+author: "Taro"
+license: "MIT"
+provides_tools:
+  - kifu_ideas
+  - kifu_idea
+  - kifu_mark
+tags: [claude-code, ideas, productivity, sessions]
+settings:
+  url: {type: string, default: "http://127.0.0.1:8765", description: "Where kifu serve listens"}
+  digest_deliver: {type: string, default: "local", description: "Cron delivery target for the digest, e.g. telegram:<chat_id>"}
+  digest_schedule: {type: string, default: "0 18 * * 0", description: "Cron schedule for the digest"}
+  digest_quiet_days: {type: integer, default: 21, description: "An open idea goes into the digest after this many quiet days"}

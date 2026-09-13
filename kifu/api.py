@@ -1,0 +1,290 @@
+"""kifu web app and API.
+
+    /            the web app (Aji, Timeline, Sessions, Habits)
+    /api/...     JSON API, documented at /docs
+Run: kifu serve   (or: uvicorn kifu.api:app --host 127.0.0.1 --port 8765)
+"""
+import collections
+import datetime as dt
+import json
+import os
+import subprocess
+import sys
+import threading
+import uuid
+from typing import Literal
+
+from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse, Response
+
+from . import config, db, habits, report
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+JOB_KINDS = ("pull", "scan", "embed", "analyze", "link", "run")
+
+app = FastAPI(title="kifu", version="1.0",
+              description="Ideas, loose ends and work habits recovered from Claude Code sessions.")
+
+
+def con():
+    return db.connect()
+
+
+# ---- cached report payload -------------------------------------------------------------------------------
+# Habits take ~1.5 s and depend only on sessions and threads; the idea list takes ~0.5 s and also on marks.
+# Each part is cached under a cheap fingerprint of the data it depends on, and the serialized JSON is kept
+# too, because FastAPI's own encoder needs several seconds for the 2 MB payload.
+
+_cache = {}
+_cache_lock = threading.Lock()
+
+
+def _fingerprint(c, with_marks):
+    # Content, not just ids: `kifu link` deletes and re-inserts lines, and SQLite reuses their ids.
+    parts = [tuple(c.execute("SELECT COUNT(*), MAX(ended), SUM(n_turns) FROM sessions").fetchone()),
+             tuple(c.execute("SELECT COUNT(*), MAX(id), TOTAL(LENGTH(summary)), TOTAL(LENGTH(loose_ends)) "
+                             "FROM threads").fetchone()),
+             tuple(c.execute("SELECT COUNT(*), TOTAL(score), TOTAL(LENGTH(title) + LENGTH(summary) + "
+                             "LENGTH(COALESCE(verdict, '')) + LENGTH(COALESCE(loose_ends, ''))), MAX(last_ts) "
+                             "FROM lines").fetchone())]
+    if with_marks:
+        parts.append(tuple(c.execute("SELECT COUNT(*), MAX(updated) FROM marks").fetchone()))
+    return repr(parts)
+
+
+def payload():
+    with _cache_lock:
+        c = con()
+        hkey = _fingerprint(c, with_marks=False)
+        if _cache.get("habits_key") != hkey:
+            _cache["habits"] = habits.compute(c)
+            _cache["habits_key"] = hkey
+        key = _fingerprint(c, with_marks=True)
+        if _cache.get("key") != key:
+            _cache["data"] = report.collect(c, habits_data=_cache["habits"])
+            _cache["json"] = json.dumps(_cache["data"], ensure_ascii=False).encode()
+            _cache["key"] = key
+        return _cache["data"]
+
+
+def payload_json():
+    payload()
+    return _cache["json"]
+
+
+def _invalidate():
+    """Nothing to drop: fingerprints notice changes. Kept as the one place to hook if that ever changes."""
+
+
+# ---- web app -----------------------------------------------------------------------------------------------
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def index():
+    with open(report.TEMPLATE_PATH) as fh:
+        return fh.read()
+
+
+# ---- read API ----------------------------------------------------------------------------------------------
+
+@app.get("/api/health")
+def health():
+    c = con()
+    row = c.execute("SELECT COUNT(*) n, MAX(ended) last FROM sessions").fetchone()
+    return {"ok": True, "sessions": row["n"], "latest_session": row["last"], "job": _current_job_summary()}
+
+
+@app.get("/api/report", summary="Everything the web app shows, in one payload")
+def get_report():
+    return Response(content=payload_json(), media_type="application/json")
+
+
+@app.get("/api/stats")
+def stats():
+    return payload()["stats"]
+
+
+@app.get("/api/overview", summary="Header numbers, habit summary, top open ideas, questions left behind")
+def overview(top: int = Query(5, le=50)):
+    data = payload()
+    open_lines = [l for l in data["lines"] if _open(l)]
+    cfg = config.get()
+    return {"stats": data["stats"], "summary": data["habits"].get("summary", {}),
+            "top": [report.compact(l, data) for l in open_lines[:top]],
+            "left_behind": data["habits"].get("questions", {}).get("left_behind", [])[:10],
+            "job": _current_job_summary(),
+            "config": {"user": cfg.user, "timezone": data["habits"].get("timezone"),
+                       "hosts": [s.host for s in cfg.source_list()], "backend": cfg.backend, "demo": cfg.demo}}
+
+
+@app.get("/api/digest", summary="Open ideas that went quiet, as structured items and as a ready message")
+def digest(quiet_days: int = Query(21, ge=0), limit: int = Query(5, le=50)):
+    data = payload()
+    items = [report.compact(l, data) for l in data["lines"] if _open(l)]
+    items = [i for i in items if i["quiet_days"] >= quiet_days][:limit]
+    if not items:
+        return {"items": [], "text": f"No open idea has been quiet for {quiet_days} days or more."}
+    lines = [f"{len(items)} idea{'s' if len(items) > 1 else ''} quiet for {quiet_days}+ days:"]
+    for i in items:
+        lines.append(f"\n• {i['title']} ({i['project']}, {i['status']}, quiet {i['quiet_days']} days)")
+        for loose in i["loose_ends"][:2]:
+            lines.append(f"  – {loose}")
+    return {"items": items, "text": "\n".join(lines)}
+
+
+def _open(line):
+    return line["score"] > 0 and not line["mark"]
+
+
+@app.get("/api/lines", summary="Ideas followed across sessions")
+def lines(status: str | None = Query(None, description="comma separated: shipped,started,proposed,parked,dropped,answered"),
+          open_only: bool = Query(False, alias="open", description="only open, unmarked ideas"),
+          area: str | None = None, q: str | None = None, marked: bool | None = None,
+          compact: bool = Query(False, description="short items for agents and notifications"),
+          limit: int = Query(50, le=1000), offset: int = 0):
+    items = payload()["lines"]
+    if status:
+        wanted = set(status.split(","))
+        items = [l for l in items if l["status"] in wanted]
+    if open_only:
+        items = [l for l in items if _open(l)]
+    if marked is not None:
+        items = [l for l in items if bool(l["mark"]) == marked]
+    if area:
+        items = [l for l in items if area in l["areas"]]
+    if q:
+        words = q.lower().split()
+        def hay(l):
+            return " ".join([l["title"], l["summary"], l["verdict"], l["next"], *l["loose"],
+                             *[t["quote"] or "" for t in l["threads"]]]).lower()
+        items = [l for l in items if all(w in hay(l) for w in words)]
+    page = items[offset:offset + limit]
+    if compact:
+        data = payload()
+        page = [report.compact(l, data) for l in page]
+    return {"total": len(items), "items": page}
+
+
+def _line(anchor):
+    for l in payload()["lines"]:
+        if l["anchor"] == anchor or str(l["id"]) == anchor:
+            return l
+    raise HTTPException(404, f"no idea with anchor {anchor}")
+
+
+@app.get("/api/lines/{anchor}", summary="One idea with its trail through sessions")
+def line(anchor: str):
+    return _line(anchor)
+
+
+@app.get("/api/sessions")
+def sessions(host: str | None = None, project: str | None = None, q: str | None = None,
+             limit: int = Query(100, le=1000), offset: int = 0):
+    items = list(reversed(payload()["sessions"]))
+    if host:
+        items = [s for s in items if s["host"] == host]
+    if project:
+        items = [s for s in items if project in s["project"]]
+    if q:
+        items = [s for s in items if q.lower() in (s["title"] + " " + s["project"]).lower()]
+    return {"total": len(items), "items": items[offset:offset + limit]}
+
+
+@app.get("/api/sessions/{session_id}", summary="One session: turns, threads, evidence")
+def session(session_id: str, turns: bool = True):
+    c = con()
+    s = c.execute("SELECT * FROM sessions WHERE id >= ? AND id < ? LIMIT 2", db.prefix_range(session_id)).fetchall()
+    if len(s) != 1:
+        raise HTTPException(404 if not s else 409, "no such session" if not s else "ambiguous session prefix")
+    s = dict(s[0])
+    out = {"session": s,
+           "threads": [dict(t, loose_ends=json.loads(t["loose_ends"] or "[]"), keywords=json.loads(t["keywords"] or "[]"))
+                       for t in c.execute("""SELECT id, title, summary, kind, status, first_turn, last_turn, first_ts, last_ts,
+                                            quote, next_step, keywords, loose_ends, line_id FROM threads
+                                            WHERE session_id=? ORDER BY first_ts""", (s["id"],))],
+           "evidence": {e["kind"]: e["n"] for e in c.execute(
+               "SELECT kind, COUNT(*) n FROM evidence WHERE session_id=? GROUP BY kind", (s["id"],))}}
+    if turns:
+        out["turns"] = [dict(t) for t in c.execute(
+            "SELECT idx, ts, ended, prompt, reply, n_tools, dup_of FROM turns WHERE session_id=? ORDER BY idx", (s["id"],))]
+    return out
+
+
+@app.get("/api/habits", summary="Rhythm, focus, reply time, juggling, questions left behind")
+def get_habits():
+    return payload()["habits"]
+
+
+# ---- marks -------------------------------------------------------------------------------------------------
+
+@app.put("/api/lines/{anchor}/mark", summary="Mark an idea done, dismissed, or open again")
+def mark(anchor: str, state: Literal["done", "dismissed", "open"] = Body(..., embed=True),
+         note: str = Body("", embed=True)):
+    line_ = _line(anchor)
+    c = con()
+    if state == "open":
+        c.execute("DELETE FROM marks WHERE anchor=?", (line_["anchor"],))
+    else:
+        c.execute("INSERT OR REPLACE INTO marks VALUES (?,?,?,?)",
+                  (line_["anchor"], state, note, dt.datetime.now(dt.UTC).isoformat(timespec="seconds")))
+    c.commit()
+    _invalidate()
+    return _line(line_["anchor"])
+
+
+# ---- jobs --------------------------------------------------------------------------------------------------
+
+_jobs = collections.OrderedDict()
+_jobs_lock = threading.Lock()
+
+
+def _current_job_summary():
+    with _jobs_lock:
+        for j in reversed(_jobs.values()):
+            if j["status"] == "running":
+                return {k: j[k] for k in ("id", "kind", "status", "started")}
+    return None
+
+
+def _run_job(job):
+    cmd = [sys.executable, "-m", "kifu", job["kind"]]
+    proc = subprocess.Popen(cmd, cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+                            env={**os.environ, "PYTHONUNBUFFERED": "1"})
+    for line_ in proc.stdout:
+        if "FutureWarning" in line_ or line_.startswith("  warn("):
+            continue
+        job["log"].append(line_.rstrip())
+        del job["log"][:-2000]
+    job["exit_code"] = proc.wait()
+    job["status"] = "done" if job["exit_code"] == 0 else "failed"
+    job["finished"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    _invalidate()
+
+
+@app.post("/api/jobs", status_code=202, summary="Start pull, scan, embed, analyze, link or run in the background")
+def start_job(kind: Literal["pull", "scan", "embed", "analyze", "link", "run"] = Body(..., embed=True)):
+    with _jobs_lock:
+        running = [j for j in _jobs.values() if j["status"] == "running"]
+        if running:
+            raise HTTPException(409, f"job {running[0]['id']} ({running[0]['kind']}) is still running")
+        job = {"id": uuid.uuid4().hex[:12], "kind": kind, "status": "running", "log": [], "exit_code": None,
+               "started": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"), "finished": None}
+        _jobs[job["id"]] = job
+        while len(_jobs) > 50:
+            _jobs.popitem(last=False)
+    threading.Thread(target=_run_job, args=(job,), daemon=True).start()
+    return {k: job[k] for k in ("id", "kind", "status", "started")}
+
+
+@app.get("/api/jobs")
+def jobs():
+    with _jobs_lock:
+        return [{k: j[k] for k in ("id", "kind", "status", "started", "finished", "exit_code")} for j in reversed(_jobs.values())]
+
+
+@app.get("/api/jobs/{job_id}")
+def job(job_id: str, tail: int = Query(200, le=2000)):
+    with _jobs_lock:
+        j = _jobs.get(job_id)
+        if not j:
+            raise HTTPException(404, "no such job")
+        return {**{k: j[k] for k in ("id", "kind", "status", "started", "finished", "exit_code")}, "log": j["log"][-tail:]}

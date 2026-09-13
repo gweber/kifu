@@ -1,0 +1,12 @@
+# Hourly `kifu pull`, so the archive keeps sessions before Claude Code's cleanup deletes them.
+# Pair with a kifu-pull.service running: ExecStart=%h/.local/bin/kifu pull  (Type=oneshot)
+[Unit]
+Description=Hourly kifu pull
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

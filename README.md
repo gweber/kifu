@@ -1,0 +1,149 @@
+# kifu
+
+**Find the ideas you left behind in your Claude Code sessions.**
+
+kifu reads every Claude Code session on your machines, finds the ideas in them — the feature you
+asked about at midnight, the offer you said yes to and never came back for, the list where only two
+of four items got done — and follows each one across sessions and machines until it shipped, was
+dropped, or went quiet. It also shows how you work: when you drive with "go on", when you are deep in
+something, how long you stay on one thing, and how often a question from the assistant goes unanswered.
+
+![Open ideas, most potential first](docs/aji.png)
+
+*Kifu* is the record of a game of Go. *Aji* — literally "taste" — is the potential left on the board:
+stones that are not dead yet and can still come alive. kifu keeps the record and ranks the aji.
+
+## Why
+
+Working with Claude Code, ideas arrive faster than they get finished. A question turns into a design,
+the design into three follow-ups, and then something breaks and the session moves on. The next idea
+starts in a new session, sometimes on another machine. Nothing is lost — it is all in
+`~/.claude/projects` — but nobody reads 2.7 GB of JSONL to find out what was left open.
+
+On the machines this was built for, three months came to 297 sessions and 7,900 prompts on two
+computers. kifu found 1,228 ideas in them; 506 were still open, with 1,489 concrete loose ends. One in
+eight questions the assistant asked was never answered — the next prompt went somewhere else. And
+Claude Code deletes session files after `cleanupPeriodDays` (30 by default): the oldest sessions were
+already gone.
+
+## What you get
+
+**A web app** (`kifu serve`)
+
+- **Aji:** open ideas, ranked by how much is left and how long they have been quiet. Each shows the
+  verdict, the loose ends, your own words from the session that started it, and the command to resume
+  that session — on the machine it ran on. Mark ideas done or dismissed; the marks survive re-analysis.
+- **Timeline:** every idea as a line from its first to its last session, one lane per project.
+- **Sessions:** day by day, which ideas lived in which session.
+- **Habits:** when you work, how you prompt week by week, focus stretches, time to answer, juggling
+  between sessions, questions left behind, how long ideas live.
+
+| | |
+|---|---|
+| ![Timeline](docs/timeline.png) | ![Sessions](docs/sessions.png) |
+
+![Habits](docs/habits.png)
+
+**A JSON API** with OpenAPI docs at `/docs`, including a compact form for agents and a digest of ideas
+that went quiet.
+
+**A terminal view:** `kifu ideas`, `kifu sessions`, `kifu show <session>`, `kifu threads`.
+
+**A plugin for [Hermes Agent](https://github.com/NousResearch/hermes-agent)** — an Ideas tab in the
+dashboard, three agent tools ("what did I leave unfinished in tidepool?"), `/kifu`, and a weekly digest.
+See [hermes-plugin/](hermes-plugin/).
+
+![kifu in the Hermes dashboard](docs/hermes-ideas.png)
+
+## Try it without your own sessions
+
+```bash
+pip install "kifu[web]"
+kifu demo /tmp/kifu-demo
+KIFU_CONFIG=/tmp/kifu-demo/config.toml kifu serve      # http://127.0.0.1:8765
+```
+
+The demo writes eleven made-up sessions in Claude Code's file format, analyzes them with scripted
+answers and embeds them with a hashing function. No model is called.
+
+## Use it on your sessions
+
+You need Python 3.11+, and two model endpoints:
+
+- **Analysis** reads each session once. The default is `claude -p` on your own Claude login (Sonnet,
+  medium effort, no tools). Any OpenAI-compatible server works too: vLLM, Ollama, LiteLLM, a hosted API.
+- **Embeddings** follow ideas across sessions. Any OpenAI-compatible `/v1/embeddings` endpoint; the
+  default is Ollama with `bge-m3` (`ollama pull bge-m3`), which handles prompts in any language.
+
+```bash
+pip install "kifu[web]"
+mkdir -p ~/.config/kifu   # copy examples/config.toml from this repository there, and edit it
+kifu run        # pull, scan, embed, analyze, link — later runs only read what is new
+kifu serve
+```
+
+`kifu config` prints the settings in effect. Every setting is described in
+[examples/config.toml](examples/config.toml).
+
+**Several machines:** add a `[[sources]]` entry with `ssh = "host"` per machine; `kifu pull` copies
+their sessions over rsync.
+
+**Keep the history:** `kifu pull` copies session files into an archive and never deletes. Run it more
+often than Claude Code's cleanup runs — [examples/](examples/) has a systemd service and an hourly timer.
+
+**Cost:** the first run reads every session; after that only new or continued sessions. Each call
+sends a digest (your prompts plus the end of each reply), not the full transcript, and runs without
+MCP servers, settings or skills: a session of a few dozen prompts is around ten thousand input tokens.
+
+## How it works
+
+| Stage | | |
+|---|---|---|
+| **pull** | rsync each machine's `~/.claude/projects` into an archive | never deletes |
+| **scan** | turns: each prompt you typed, the end of the reply, when the work ended; evidence: files written, commits, pushes, PRs, deploys, question dialogs; forks and resumes | deterministic, seconds |
+| **embed** | fold "go on" and "yes do both" into the prompt they confirm; embed each move | local or any endpoint |
+| **analyze** | a model reads each session's moves and lists its threads: title, kind, status, your quote, loose ends, next step | cached per session |
+| **link** | group the same idea across sessions by embedding; a model consolidates each group — or splits it if the ideas are only related — and drops loose ends a later session settled; open ideas get an aji score | cached per group |
+
+Status comes from what the sessions show: writes and commits count as evidence, a reply that says
+"done" does not.
+
+### What the habits measure
+
+- **Modes:** *go on* (short confirmations), *short direction*, *question*, *long prompt* (280+ characters).
+- **Focus stretch:** consecutive prompts on one topic, until a switch, a pause of more than 45 minutes
+  after the assistant finished, or the end of the session. Topic changes come from the analyzed threads,
+  with embeddings as a fallback. The assistant's working time is included.
+- **Time to answer:** from the end of a reply to your next prompt, pauses left out.
+- **Questions left behind:** replies ending in a question whose next prompt belongs to a different
+  thread, or that ended the session.
+- **Recommendation taken:** in question dialogs that marked an option as recommended.
+
+These are measurements of a conversation log, not of a person: a long focus stretch can be a long
+autonomous run, and a slow answer can be a phone call.
+
+## Privacy
+
+Everything is stored locally. Session digests go to the analysis backend you configure — Anthropic
+with the default, where the sessions came from in the first place, or a local model if you point
+`[analysis]` at one. The web app and API have no authentication and bind to `127.0.0.1`. See
+[SECURITY.md](SECURITY.md).
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest -q tests/
+ruff check kifu tests hermes-plugin
+
+# the dashboard plugin, rendered and clicked through in jsdom
+python tests/dump_plugin_fixtures.py /tmp/kifu-fixtures.json
+npm install --no-save react react-dom jsdom
+KIFU_FIXTURES=/tmp/kifu-fixtures.json node hermes-plugin/dashboard/render_check.js
+```
+
+The tests run against the demo store: no network, no model.
+
+## License
+
+MIT

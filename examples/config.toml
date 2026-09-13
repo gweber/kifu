@@ -1,0 +1,35 @@
+# ~/.config/kifu/config.toml — every key is optional. `kifu config` prints what is in effect.
+
+user = "Ada"                              # how the analyzer refers to you
+timezone = "Europe/Lisbon"                # for rhythm and habits; default: the system's
+project_roots = ["~/code"]                # ~/code/tidepool is shown as tidepool
+# writing_note = "often writes in German and dictates"
+# confirmations = ["weiter", "passt"]     # "go on" in your own words
+
+# Where Claude Code keeps sessions. Without [[sources]], only this machine's ~/.claude/projects.
+[[sources]]
+host = "laptop"
+path = "~/.claude/projects"
+
+[[sources]]
+host = "studio"
+ssh = "studio.local"                      # pulled with rsync over ssh
+path = "~/.claude/projects"
+
+[embeddings]                              # any OpenAI-compatible /v1/embeddings endpoint
+url = "http://localhost:11434/v1/embeddings"   # e.g. Ollama: `ollama pull bge-m3`
+model = "bge-m3"
+
+[analysis]
+backend = "claude"                        # headless `claude -p` on your own Claude login
+model = "sonnet"
+effort = "medium"
+workers = 6
+# backend = "openai"                      # or any OpenAI-compatible chat endpoint
+# openai_url = "http://localhost:8000/v1/chat/completions"
+# openai_model = "qwen3-32b"
+# openai_api_key_env = "OPENAI_API_KEY"
+
+[server]
+host = "127.0.0.1"                        # keep it on loopback: the API has no authentication
+port = 8765
