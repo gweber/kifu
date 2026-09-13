@@ -112,9 +112,12 @@ embedder = None
 
 def embed_texts(texts, batch=32):
     """Vectors from any OpenAI-compatible /v1/embeddings endpoint (vLLM, Ollama, LiteLLM, OpenAI)."""
+    cfg = config.get()
+    if embedder is None and cfg.demo:
+        from . import demo  # the demo store embeds with its hashing function, in whichever process opens it
+        demo.install()
     if embedder is not None:
         return np.asarray(embedder(texts), dtype=np.float32)
-    cfg = config.get()
     out = []
     with httpx.Client(timeout=120) as client:
         for i in range(0, len(texts), batch):

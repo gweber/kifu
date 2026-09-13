@@ -155,6 +155,9 @@ fixture = None
 
 
 def call_fixture(system, user, schema=THREAD_SCHEMA):
+    if fixture is None and config.get().demo:
+        from . import demo  # a demo store analyzes with scripted answers, in whichever process opens it
+        demo.install()
     if fixture is None:
         raise RuntimeError("the fixture backend needs kifu.analyze.fixture to be set")
     return fixture(system, user, schema)

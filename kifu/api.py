@@ -5,6 +5,7 @@
 Run: kifu serve   (or: uvicorn kifu.api:app --host 127.0.0.1 --port 8765)
 """
 import collections
+import contextlib
 import datetime as dt
 import json
 import os
@@ -17,12 +18,18 @@ from typing import Literal
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from . import config, db, habits, marks, report
+from . import __version__, config, db, habits, marks, report
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-JOB_KINDS = ("pull", "scan", "embed", "analyze", "link", "verify", "run")
+JOB_KINDS = ("pull", "scan", "embed", "analyze", "link", "verify", "run", "drain")
 
-app = FastAPI(title="kifu", version="1.0",
+@contextlib.asynccontextmanager
+async def _lifespan(_app):
+    threading.Thread(target=_queue_watcher, daemon=True, name="kifu-queue").start()
+    yield
+
+
+app = FastAPI(title="kifu", version=__version__, lifespan=_lifespan,
               description="Ideas, loose ends and work habits recovered from Claude Code sessions.")
 
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
@@ -284,18 +291,52 @@ def _run_job(job):
 
 
 @app.post("/api/jobs", status_code=202, summary="Start pull, scan, embed, analyze, link or run in the background")
-def start_job(kind: Literal["pull", "scan", "embed", "analyze", "link", "verify", "run"] = Body(..., embed=True)):
+def start_job(kind: Literal["pull", "scan", "embed", "analyze", "link", "verify", "run", "drain"] = Body(..., embed=True)):
+    job = _start(kind)
+    if job is None:
+        with _jobs_lock:
+            running = next(j for j in _jobs.values() if j["status"] == "running")
+        raise HTTPException(409, f"job {running['id']} ({running['kind']}) is still running")
+    return {k: job[k] for k in ("id", "kind", "status", "started")}
+
+
+def _start(kind):
+    """Start a job unless one is running; returns the job or None."""
     with _jobs_lock:
-        running = [j for j in _jobs.values() if j["status"] == "running"]
-        if running:
-            raise HTTPException(409, f"job {running[0]['id']} ({running[0]['kind']}) is still running")
+        if any(j["status"] == "running" for j in _jobs.values()):
+            return None
         job = {"id": uuid.uuid4().hex[:12], "kind": kind, "status": "running", "log": [], "exit_code": None,
                "started": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"), "finished": None}
         _jobs[job["id"]] = job
         while len(_jobs) > 50:
             _jobs.popitem(last=False)
     threading.Thread(target=_run_job, args=(job,), daemon=True).start()
-    return {k: job[k] for k in ("id", "kind", "status", "started")}
+    return job
+
+
+# ---- queue from the SessionEnd hook ------------------------------------------------------------------------
+
+_queue_event = threading.Event()
+
+
+@app.post("/api/queue", summary="A session ended (the SessionEnd hook): analyze queued sessions soon")
+def queue():
+    from . import drain
+    _queue_event.set()
+    return {"pending": drain.pending()}
+
+
+def _queue_watcher():
+    """Start a drain job when sessions are queued and nothing else runs; the drain waits for the burst to end."""
+    from . import drain
+    while True:
+        _queue_event.wait(timeout=60)
+        _queue_event.clear()
+        try:
+            if drain.pending():
+                _start("drain")
+        except Exception:  # the watcher must outlive a bad tick
+            pass
 
 
 @app.get("/api/jobs")

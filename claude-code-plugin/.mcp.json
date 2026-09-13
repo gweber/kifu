@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "kifu": { "command": "kifu", "args": ["mcp"] }
+  }
+}

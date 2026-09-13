@@ -1,0 +1,16 @@
+{
+  "name": "kifu",
+  "owner": {
+    "name": "Taro"
+  },
+  "metadata": {
+    "description": "kifu: the ideas you left behind in your Claude Code sessions."
+  },
+  "plugins": [
+    {
+      "name": "kifu",
+      "source": "./claude-code-plugin",
+      "description": "The ideas you left behind in earlier Claude Code sessions, in every new session."
+    }
+  ]
+}

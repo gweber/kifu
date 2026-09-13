@@ -164,9 +164,6 @@ def get() -> Config:
     global _current
     if _current is None:
         _current = load()
-        if _current.demo:           # a demo store analyzes with scripted answers, in every process that opens it
-            from . import demo
-            demo.install()
     return _current
 
 

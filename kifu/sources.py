@@ -14,10 +14,12 @@ def archive_root(host):
     return os.path.join(config.get().archive_dir, host, "projects")
 
 
-def pull(log=print):
+def pull(log=print, only_local=False):
     """rsync each source into the archive. No --delete: the archive only grows. Returns the hosts that failed."""
     failed = []
     for src in config.get().source_list():
+        if only_local and src.ssh:
+            continue
         dest = archive_root(src.host)
         os.makedirs(dest, exist_ok=True)
         path = src.path.rstrip("/") + "/"
