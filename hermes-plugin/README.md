@@ -19,7 +19,7 @@ The plugin holds no data and needs nothing beyond the standard library: it calls
 ## Install
 
 ```bash
-pip install "kifu[web]" && kifu serve          # or run it as a service, see ../examples
+pip install "kifu[web] @ git+https://github.com/gweber/kifu" && kifu serve          # or run it as a service, see ../examples
 hermes plugins install gweber/kifu/hermes-plugin
 hermes plugins enable kifu
 systemctl restart hermes-dashboard             # the tab's routes mount at dashboard start

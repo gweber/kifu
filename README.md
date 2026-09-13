@@ -58,7 +58,7 @@ See [hermes-plugin/](hermes-plugin/).
 ## Try it without your own sessions
 
 ```bash
-pip install "kifu[web]"
+pip install "kifu[web] @ git+https://github.com/gweber/kifu"
 kifu demo /tmp/kifu-demo
 KIFU_CONFIG=/tmp/kifu-demo/config.toml kifu serve      # http://127.0.0.1:8765
 ```
@@ -76,7 +76,7 @@ You need Python 3.11+, and two model endpoints:
   default is Ollama with `bge-m3` (`ollama pull bge-m3`), which handles prompts in any language.
 
 ```bash
-pip install "kifu[web]"
+pip install "kifu[web] @ git+https://github.com/gweber/kifu"
 mkdir -p ~/.config/kifu   # copy examples/config.toml from this repository there, and edit it
 kifu run        # pull, scan, embed, analyze, link — later runs only read what is new
 kifu serve
