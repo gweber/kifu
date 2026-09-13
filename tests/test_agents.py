@@ -167,3 +167,8 @@ def test_a_codex_source_goes_through_pull_scan_and_resume(store, tmp_path):
     data = report.collect(con, habits_data={})
     session = next(x for x in data["sessions"] if x["id"] == f"codex-{sid}")
     assert report.resume_command(session) == f"cd /home/ada/code/tidepool && codex resume {sid}"
+
+
+def test_remote_paths_expand_home_but_stay_quoted():
+    assert sources.remote_path("~/.hermes/state.db") == '"$HOME"/.hermes/state.db'
+    assert sources.remote_path("/srv/my data/state.db") == "'/srv/my data/state.db'"

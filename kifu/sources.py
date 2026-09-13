@@ -54,12 +54,19 @@ def _pull_files(src):
     return subprocess.run(cmd, capture_output=True, text=True), dest
 
 
+def remote_path(path):
+    """A path for a remote shell: ~/ expands to the remote home, everything else stays quoted."""
+    if path.startswith("~/"):
+        return '"$HOME"/' + shlex.quote(path[2:])
+    return shlex.quote(path)
+
+
 def _pull_sqlite(src):
     """A consistent copy of a remote SQLite history, fetched only when the database changed."""
     dest = source_root(src)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     stamp = dest + ".mtime"
-    quoted = shlex.quote(src.path)
+    quoted = remote_path(src.path)
     probe = subprocess.run(_ssh(src, f"stat -c %Y {quoted} 2>/dev/null || stat -f %m {quoted}"),
                            capture_output=True, text=True, timeout=60)
     if probe.returncode:
