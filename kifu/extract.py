@@ -142,6 +142,8 @@ class SessionParse:
         self.ended = None
         self.teleported = []
         self.pr_links = []
+        self.tool = "claude"
+        self.automated = None       # None: decided by store() from turns and markers
 
     def add_evidence(self, kind, value, ts, source="main"):
         idx = len(self.turns) - 1 if self.turns else None
@@ -158,6 +160,16 @@ def queued_prompt(r):
     text = a.get("prompt")
     text = _text_of(text) if isinstance(text, list) else str(text or "")
     return clean_prompt(text) or None
+
+
+def touch(cur, ts):
+    """A turn ends at the last activity before a long silence; later wakeups run on their own."""
+    if cur is None or not ts or cur["detached"]:
+        return
+    if _minutes(cur["ended"], ts) > ACTIVE_GAP_MIN:
+        cur["detached"] = True
+    else:
+        cur["ended"] = ts
 
 
 def new_turn(sp, ts, uuid, prompt, queued=False):
@@ -251,12 +263,7 @@ def parse_session(path):
                 if prompt and not _already_queued(sp, prompt, ts):
                     cur = new_turn(sp, ts, r.get("uuid"), prompt)
             continue
-        if cur is not None and ts and not cur["detached"]:
-            # A turn ends at the last activity before a long silence; later wakeups run on their own.
-            if _minutes(cur["ended"], ts) > ACTIVE_GAP_MIN:
-                cur["detached"] = True
-            else:
-                cur["ended"] = ts
+        touch(cur, ts)
         for block in r.get("message", {}).get("content") or []:
             if not isinstance(block, dict):
                 continue
@@ -365,31 +372,66 @@ def scan(con, root, force=False, log=print, host=None):
 
 
 def scan_archive(con, force=False, log=print):
-    """Scan every host's archive. A session file that is gone upstream stays in the archive and in the db."""
+    """Scan every source. A session that is gone upstream stays in the archive and in the database."""
     from . import sources
     archive = os.path.join(config.get().archive_dir, "")
-    con.execute("DELETE FROM files WHERE kind='session' AND NOT (path >= ? AND path < ?)", (archive, archive + "\uffff"))
+    live = [sources.source_root(src) for src in config.get().source_list() if not sources.archived(src)]
+    con.execute("DELETE FROM files WHERE kind='session' AND NOT (path >= ? AND path < ?)"
+                + "".join(" AND NOT (path >= ? AND path < ?)" for _ in live),
+                (archive, archive + "\uffff", *[x for root in live for x in (root, root + "\uffff")]))
     n = 0
     for src in config.get().source_list():
-        root = sources.archive_root(src.host)
-        if os.path.isdir(root):
-            n += scan(con, root, force=force, log=lambda m, h=src.host: log(f"{h}: {m}"), host=src.host)
+        root = sources.source_root(src)
+        if not os.path.exists(root):
+            continue
+        say = (lambda m, h=src.host, k=src.kind: log(f"{h}/{k}: {m}"))
+        if src.kind == "claude":
+            n += scan(con, root, force=force, log=say, host=src.host)
+        else:
+            n += scan_agent(con, src.kind, root, force=force, log=say, host=src.host)
     return n
+
+
+def scan_agent(con, kind, root, force=False, log=print, host=None):
+    """Sessions of another coding agent (see agents.py), with the same change detection as Claude Code files."""
+    from . import agents
+    items, parse, _ = agents.ADAPTERS[kind]
+    found = items(root)
+    prefix = f"{root}#"
+    known = {r["path"]: (r["size"], r["mtime"]) for r in con.execute(
+        "SELECT * FROM files WHERE kind='session' AND path >= ? AND path < ?", (prefix, prefix + "\uffff"))}
+    cwds = [r["cwd"] for r in con.execute("SELECT DISTINCT cwd FROM sessions WHERE host IS ? AND cwd IS NOT NULL", (host,))]
+    todo = [(sid, key, where) for sid, (key, where) in found.items() if force or known.get(prefix + sid) != tuple(key)]
+    log(f"{len(found)} {kind} sessions, {len(todo)} new or changed")
+    for sid, key, where in todo:
+        try:
+            sp = parse(sid, where, known_cwds=cwds)
+        except Exception as exc:  # one unreadable session must not stop the others
+            log(f"  {kind} {sid}: {type(exc).__name__}: {exc}")
+            continue
+        path = sp.path
+        sp.path = prefix + sid
+        store(con, sp, n_subagents=0, size=key[0], mtime=key[1], host=host)
+        sp.path = path
+        con.commit()
+    if todo:
+        con.execute("PRAGMA optimize")
+    return len(todo)
 
 
 def store(con, sp, n_subagents, size, mtime, host=None):
     cwd = sp.cwds.most_common(1)[0][0] if sp.cwds else None
-    automated = int(len(sp.turns) == 0 or sp.entrypoint == "sdk-cli"
+    automated = int(len(sp.turns) == 0 or bool(sp.automated) or sp.entrypoint == "sdk-cli"
                     or any(marker in sp.path for marker in config.get().automated_markers))
     con.execute("DELETE FROM turns WHERE session_id=?", (sp.id,))
     con.execute("DELETE FROM evidence WHERE session_id=?", (sp.id,))
     con.execute("DELETE FROM links WHERE src=? AND kind IN ('fork','teleport')", (sp.id,))
     con.execute("""INSERT OR REPLACE INTO sessions(id, path, project, cwd, branch, entrypoint, started, ended, title,
                    ai_title, agent_name, n_prompts, n_turns, n_tool_calls, n_subagents, n_compactions, bytes, automated,
-                   digest_hash, host) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   digest_hash, host, tool) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (sp.id, sp.path, project_name(cwd), cwd, sp.branch, sp.entrypoint, sp.started, sp.ended, redact(sp.title),
                  redact(sp.ai_title), sp.agent_name, len(sp.turns), len(sp.turns), sp.meta["tool_calls"], n_subagents,
-                 sp.meta["compactions"], size, automated, digest_hash(sp.turns), host))
+                 sp.meta["compactions"], size, automated, digest_hash(sp.turns), host, sp.tool))
     # Secrets are removed here, before anything is stored: see redact.py.
     con.executemany("""INSERT INTO turns(session_id, idx, ts, ended, uuid, prompt, reply, n_tools, files, queued)
                        VALUES (?,?,?,?,?,?,?,?,?,?)""",

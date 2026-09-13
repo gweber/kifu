@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-09-13
 
 - **Claude Code integration** (`kifu install claude`, or the plugin in `claude-code-plugin/`): a SessionStart
   hook shows the project's open ideas; a SessionEnd hook queues the session for analysis two quiet minutes
@@ -11,6 +11,9 @@
 - **Secrets are redacted** when scanning; `kifu redact` cleans an older database.
 - **Corrections:** rename, merge and detach ideas in the web app; corrections survive rebuilds. Scores
   calibrate to your done/dismissed marks once there are enough of them.
+- **Other coding agents:** sources of `kind` codex, gemini, cline, hermes and opencode. Each tool's history
+  becomes the same sessions and turns, so ideas are followed across tools; resume commands open the tool a
+  session came from. SQLite histories are read in place locally and copied with `.backup` from other machines.
 
 ## 0.2.0 — 2026-09-13
 

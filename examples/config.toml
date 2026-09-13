@@ -18,6 +18,15 @@ host = "studio"
 ssh = "studio.local"                      # pulled with rsync over ssh
 path = "~/.claude/projects"
 
+# Other coding agents: kind = codex | gemini | cline | hermes | opencode. The path defaults per kind.
+# [[sources]]
+# host = "laptop"
+# kind = "codex"                          # ~/.codex/sessions
+# [[sources]]
+# host = "laptop"
+# kind = "cline"
+# path = "~/.config/Code/User/globalStorage/saoudrizwan.claude-dev"
+
 [embeddings]                              # any OpenAI-compatible /v1/embeddings endpoint
 url = "http://localhost:11434/v1/embeddings"   # e.g. Ollama: `ollama pull bge-m3`
 model = "bge-m3"

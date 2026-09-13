@@ -232,10 +232,16 @@ function visible(l) {
 }
 
 function resumeCmd(sid) {
-  const s = sessById[sid];
-  if (!s) return `claude --resume ${sid}`;
-  const cmd = `cd ${s.cwd} && claude --resume ${sid}`;
-  return s.local ? cmd : `ssh -t ${s.host} '${cmd}'`;
+  // The server knows how each tool resumes (claude, codex, hermes, …); some tools have no command at all.
+  return (sessById[sid] || {}).resume || "";
+}
+
+function cmdChip(command) {
+  return command ? `<code class="cmd" title="click to copy">${esc(command)}</code>` : "";
+}
+
+function toolChip(s) {
+  return s && s.tool && s.tool !== "claude" ? `<span class="chip">${esc(s.tool)}</span> ` : "";
 }
 
 function card(l, open = false) {
@@ -246,7 +252,7 @@ function card(l, open = false) {
       <span class="stone s-${t.status}" title="${t.status}"></span> ${esc(t.title)}
       <span class="chip">${esc(s.project || "")}</span>
       <div class="quote">“${esc(t.quote)}”</div>
-      <div>${esc(s.title || "")} · <code class="cmd" title="click to copy">${esc(t.resume || resumeCmd(t.session))}</code>
+      <div>${toolChip(s)}${esc(s.title || "")} · ${cmdChip(t.resume || resumeCmd(t.session))}
       ${LIVE && l.threads.length > 1 ? `<button class="mk" data-detach="${esc(t.key)}" data-anchor="${esc(l.anchor)}" title="This thread is a different idea">Not the same idea</button>` : ""}</div></div></li>`;
   }).join("");
   const firstQuote = l.threads[0]?.quote;
@@ -349,9 +355,9 @@ function renderSessions() {
     if (q && !q.split(/\s+/).every(w => hay.includes(w))) continue;
     const day = new Date(s.started).toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "long"});
     if (day !== lastDay) { html += `<div class="day">${day}</div>`; lastDay = day; }
-    html += `<div class="srow"><span class="t">${s.started.slice(11, 16)}</span><span class="p" title="${esc(s.cwd)}">${s.local ? "" : `<span class="chip">${esc(s.host)}</span> `}${esc(s.project)}</span>
+    html += `<div class="srow"><span class="t">${s.started.slice(11, 16)}</span><span class="p" title="${esc(s.cwd)}">${toolChip(s)}${s.local ? "" : `<span class="chip">${esc(s.host)}</span> `}${esc(s.project)}</span>
       <span class="ttl">${esc(s.title || "(untitled)")} <span class="chip">${s.turns} prompts</span>
-        <code class="cmd" title="click to copy">${esc(resumeCmd(s.id))}</code></span>
+        ${cmdChip(resumeCmd(s.id))}</span>
       <span class="ideas">${ideas.map(([l, t]) => `<span class="chip" data-line="${l.id}"><span class="stone s-${t.status}"></span>${esc(t.title)}</span>`).join("")}</span></div>`;
   }
   $("#view-sessions").innerHTML = html || `<div class="empty">No sessions match.</div>`;
@@ -512,7 +518,7 @@ function renderHabits() {
   html += chart("Questions left behind", "The latest replies that ended with a question, where the next prompt went elsewhere or the session ended.",
     `<ul class="left">${left.map(x => { const s = sessById[x.session] || {};
       return `<li><span class="q">“${esc(x.question)}”</span><div class="n">${fmt(x.ts)} · ${esc(s.project || "")} · ${x.outcome === "session ended" ? "session ended" : "next: " + esc(x.next)}
-        · <code class="cmd" title="click to copy">${esc(resumeCmd(x.session))}</code></div></li>`; }).join("")}</ul>`);
+        · ${cmdChip(resumeCmd(x.session))}</div></li>`; }).join("")}</ul>`);
   html += `<div class="grid2">`;
   html += chart("Longest focus stretches", "Where you stayed on one thing the longest.",
     `<ul class="left">${H.focus.longest.slice(0, 8).map(x => `<li>${Math.round(x.minutes / 6) / 10} h · ${x.prompts} prompts<div class="n">${fmt(x.start)} · ${esc((sessById[x.session] || {}).project || "")} · “${esc(x.prompt)}”</div></li>`).join("")}</ul>`);

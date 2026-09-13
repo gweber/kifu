@@ -18,8 +18,11 @@ def collect(con, habits_data=None):
     for s in con.execute("SELECT * FROM sessions WHERE automated=0 ORDER BY started"):
         sess.append({"id": s["id"], "project": s["project"], "area": area_of(s["project"]), "cwd": s["cwd"],
                      "host": s["host"] or "", "local": not s["host"] or s["host"] in local_hosts,
+                     "tool": s["tool"] or "claude",
                      "title": s["title"] or s["ai_title"] or "", "started": s["started"], "ended": s["ended"],
                      "turns": s["n_turns"]})
+    for s in sess:
+        s["resume"] = resume_command(s)
     by_id = {s["id"]: s for s in sess}
     threads = con.execute("SELECT * FROM threads ORDER BY first_ts").fetchall()
     by_line = {}
@@ -45,7 +48,7 @@ def collect(con, habits_data=None):
                          "first": t["first_ts"], "last": t["last_ts"], "quote": t["quote"],
                          "loose": json.loads(t["loose_ends"] or "[]"), "key": thread_key(t),
                          "project": by_id[t["session_id"]]["project"] if t["session_id"] in by_id else "",
-                         "resume": resume_command(by_id[t["session_id"]]) if t["session_id"] in by_id else None}
+                         "resume": by_id[t["session_id"]]["resume"] if t["session_id"] in by_id else None}
                         for t in members],
         })
     calibrate(lines)
@@ -111,8 +114,11 @@ def calibrate(lines):
 
 
 def resume_command(session):
-    """How to reopen a session: locally, or through ssh on the machine it ran on."""
-    cmd = f"cd {session['cwd']} && claude --resume {session['id']}"
+    """How to reopen a session in the tool it came from: locally, or through ssh on the machine it ran on."""
+    from . import agents
+    cmd = agents.resume_command(session)
+    if not cmd:
+        return None
     return cmd if session["local"] else f"ssh -t {session['host']} '{cmd}'"
 
 

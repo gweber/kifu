@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kifu"
-version = "0.2.0"
-description = "Find the ideas you left behind in your Claude Code sessions: loose ends, where each idea moved, and how you work."
+version = "0.3.0"
+description = "Find the ideas you left behind in your coding-agent sessions (Claude Code, Codex, Gemini CLI, Cline, Hermes, OpenCode): loose ends, where each idea moved, and how you work."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Taro" }]

@@ -110,6 +110,11 @@ kifu install claude    # optional: hooks and MCP server in Claude Code
 **Several machines:** add a `[[sources]]` entry with `ssh = "host"` per machine; `kifu pull` copies
 their sessions over rsync.
 
+**Other coding agents:** kifu also reads the histories of Codex CLI, Gemini CLI, Cline, Hermes Agent and
+OpenCode — add a source with `kind = "codex"` (or `gemini`, `cline`, `hermes`, `opencode`); the path defaults to
+where the tool keeps its history. An idea started in Codex and continued in Claude Code becomes one line, and
+resume commands open each session in the tool it came from. Aider and Cursor are not supported yet.
+
 **Keep the history:** `kifu pull` copies session files into an archive and never deletes. Run it more
 often than Claude Code's cleanup runs — [examples/](examples/) has a systemd service and an hourly timer.
 

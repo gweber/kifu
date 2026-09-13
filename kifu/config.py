@@ -19,6 +19,10 @@ The file is ~/.config/kifu/config.toml (or $KIFU_CONFIG). Every key is optional:
     host = "studio"
     ssh = "studio.local"                 # any ssh destination; rsync pulls over it
     path = "~/.claude/projects"
+    [[sources]]
+    host = "studio"
+    ssh = "studio.local"
+    kind = "codex"                       # codex, gemini, cline, hermes, opencode; path defaults per kind
 
     [embeddings]                         # any OpenAI-compatible /v1/embeddings endpoint
     url = "http://localhost:11434/v1/embeddings"
@@ -47,6 +51,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+# Where each tool keeps its history by default (see agents.py).
+DEFAULT_PATHS = {
+    "claude": "~/.claude/projects",
+    "codex": "~/.codex/sessions",
+    "gemini": "~/.gemini/tmp",
+    "cline": "~/.config/Code/User/globalStorage/saoudrizwan.claude-dev",
+    "hermes": "~/.hermes/state.db",
+    "opencode": "~/.local/share/opencode/opencode.db",
+}
+
 
 def _path(value: str) -> str:
     return os.path.expanduser(value)
@@ -57,6 +71,7 @@ class Source:
     host: str
     path: str
     ssh: str | None = None
+    kind: str = "claude"        # claude, codex, gemini, cline, hermes, opencode
 
 
 @dataclass
@@ -127,7 +142,8 @@ def load(path: str | os.PathLike | None = None) -> Config:
         automated_markers=list(raw.get("automated_markers", [])),
         redact=bool(raw.get("redact", True)),
         redact_patterns=list(raw.get("redact_patterns", [])),
-        sources=[Source(host=s["host"], path=s.get("path", "~/.claude/projects"), ssh=s.get("ssh"))
+        sources=[Source(host=s["host"], kind=s.get("kind", "claude"), ssh=s.get("ssh"),
+                        path=s.get("path") or DEFAULT_PATHS.get(s.get("kind", "claude"), "~/.claude/projects"))
                  for s in raw.get("sources", [])],
         embed_url=emb.get("url", Config.embed_url),
         embed_model=emb.get("model", Config.embed_model),

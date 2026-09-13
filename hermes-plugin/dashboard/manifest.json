@@ -3,7 +3,7 @@
   "label": "Ideas",
   "description": "The ideas left behind in your Claude Code sessions: open ideas to triage, and how you work.",
   "icon": "Sparkles",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "tab": {
     "path": "/ideas",
     "position": "after:skills"

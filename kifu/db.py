@@ -10,12 +10,13 @@ CREATE TABLE IF NOT EXISTS files(
   path TEXT PRIMARY KEY, size INT, mtime REAL, session_id TEXT, kind TEXT);
 CREATE INDEX IF NOT EXISTS files_kind_path ON files(kind, path);
 
--- One Claude Code session. digest_hash changes when its turns change.
+-- One session of a coding agent (tool: claude, codex, gemini, cline, hermes, opencode). digest_hash changes
+-- when its turns change.
 CREATE TABLE IF NOT EXISTS sessions(
   id TEXT PRIMARY KEY, path TEXT, project TEXT, cwd TEXT, branch TEXT, entrypoint TEXT,
   started TEXT, ended TEXT, title TEXT, ai_title TEXT, agent_name TEXT,
   n_prompts INT, n_turns INT, n_tool_calls INT, n_subagents INT, n_compactions INT,
-  bytes INT, automated INT, digest_hash TEXT, host TEXT);
+  bytes INT, automated INT, digest_hash TEXT, host TEXT, tool TEXT);
 CREATE INDEX IF NOT EXISTS sessions_started ON sessions(started);
 
 -- A prompt the user typed and what the assistant did until the next one.
