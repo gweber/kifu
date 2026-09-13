@@ -174,7 +174,7 @@ def client(store):
     from fastapi.testclient import TestClient
 
     from kifu import api
-    return TestClient(api.app)
+    return TestClient(api.app, base_url="http://127.0.0.1:8765")
 
 
 def test_api_reads(client):
@@ -230,3 +230,17 @@ def test_the_api_notices_a_relink_that_keeps_the_same_ids(client, store):
     after = client.get("/api/lines", params={"q": "offline"}).json()["items"][0]["summary"]
     assert before != after == "rewritten by a relink"
 
+
+def test_dns_rebinding_and_cross_site_writes_are_refused(client, store):
+    cfg, _ = store
+    assert client.get("/api/stats", headers={"host": "evil.example"}).status_code == 421
+    assert client.get("/api/stats", headers={"host": "localhost:8765"}).status_code == 200
+    assert client.get("/api/stats", headers={"host": "[::1]:8765"}).status_code == 200
+    anchor = client.get("/api/lines", params={"open": "true"}).json()["items"][0]["anchor"]
+    body = {"state": "done"}
+    assert client.put(f"/api/lines/{anchor}/mark", json=body, headers={"origin": "https://evil.example"}).status_code == 403
+    assert client.post("/api/jobs", json={"kind": "pull"}, headers={"origin": "https://evil.example"}).status_code == 403
+    assert client.put(f"/api/lines/{anchor}/mark", json={"state": "open"},
+                      headers={"origin": "http://127.0.0.1:8765"}).status_code == 200
+    cfg.allowed_hosts = ["kifu.example.org"]
+    assert client.get("/api/stats", headers={"host": "kifu.example.org"}).status_code == 200

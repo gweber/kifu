@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 — 2026-09-13
+
+- **Security:** the API refuses DNS rebinding (only loopback `Host` names, 421 otherwise) and
+  cross-site writes (a foreign `Origin` on a request that changes something, 403). Before, a web page
+  could read ideas and start jobs through a rebound domain. `[server] allowed_hosts` admits a proxy's
+  host name.
+
 ## 0.1.0 — 2026-09-13
 
 First release.

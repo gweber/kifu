@@ -33,3 +33,4 @@ workers = 6
 [server]
 host = "127.0.0.1"                        # keep it on loopback: the API has no authentication
 port = 8765
+# allowed_hosts = ["kifu.example.org"]    # only behind a proxy that authenticates; loopback names always work

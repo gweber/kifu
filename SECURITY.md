@@ -18,6 +18,12 @@ Open an issue, or for anything that should not be public, a private security adv
   bind it to a public interface, and do not put it behind a proxy without authentication in front.
   Anyone who reaches it can read your ideas and quotes, mark them, and start jobs — including `run`,
   which spends model time.
+- **Binding to loopback is not enough on its own**, so kifu also refuses what a web page could do from
+  your browser. *DNS rebinding:* a page can point its own domain at 127.0.0.1 and read a local API as
+  if it were its own; such a request names that domain in `Host`, and kifu answers only `127.0.0.1`,
+  `localhost` and `::1` (421 otherwise). *Cross-site writes:* a request that changes something is
+  refused when the browser reports another `Origin` (403). Behind your own authenticating proxy, add
+  its host name to `[server] allowed_hosts`.
 
 ## What leaves the machine
 

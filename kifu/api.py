@@ -14,8 +14,8 @@ import threading
 import uuid
 from typing import Literal
 
-from fastapi import Body, FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse, Response
+from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from . import config, db, habits, report
 
@@ -24,6 +24,34 @@ JOB_KINDS = ("pull", "scan", "embed", "analyze", "link", "run")
 
 app = FastAPI(title="kifu", version="1.0",
               description="Ideas, loose ends and work habits recovered from Claude Code sessions.")
+
+LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+def _hostname(value):
+    """Host or Origin value without scheme and port: 'http://[::1]:8765' -> '::1'."""
+    value = value.split("://", 1)[-1].split("/", 1)[0]
+    if value.startswith("["):
+        return value[1:value.find("]")]
+    return value.rsplit(":", 1)[0] if value.count(":") == 1 else value
+
+
+@app.middleware("http")
+async def only_this_machine(request: Request, call_next):
+    """Refuse DNS rebinding and cross-site requests.
+
+    Binding to 127.0.0.1 is not enough: a web page can point its own domain at 127.0.0.1 and read the API
+    as a same-origin page. That request carries the page's domain in Host, so only loopback names (and
+    configured allowed_hosts) are served. A request that changes something is also refused when a browser
+    says it comes from another origin.
+    """
+    allowed = LOOPBACK | set(config.get().allowed_hosts)
+    if _hostname(request.headers.get("host", "")) not in allowed:
+        return JSONResponse({"detail": "host not allowed"}, status_code=421)
+    origin = request.headers.get("origin")
+    if request.method not in ("GET", "HEAD", "OPTIONS") and origin and _hostname(origin) not in allowed:
+        return JSONResponse({"detail": "cross-origin request refused"}, status_code=403)
+    return await call_next(request)
 
 
 def con():

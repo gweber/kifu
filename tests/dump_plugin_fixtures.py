@@ -14,7 +14,7 @@ out_path = sys.argv[1]
 cfg_path = demo.build(tempfile.mkdtemp(), log=lambda m: None)
 config.set_current(config.load(cfg_path))
 demo.install()
-c = TestClient(api.app)
+c = TestClient(api.app, base_url="http://127.0.0.1:8765")
 
 overview = c.get("/api/overview", params={"top": 5}).json()
 overview["kifu_url"] = "http://127.0.0.1:8765"

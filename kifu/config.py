@@ -34,6 +34,7 @@ The file is ~/.config/kifu/config.toml (or $KIFU_CONFIG). Every key is optional:
     [server]
     host = "127.0.0.1"
     port = 8765
+    allowed_hosts = ["kifu.example.org"]   # extra Host names, only behind a proxy that authenticates
 """
 from __future__ import annotations
 
@@ -77,6 +78,7 @@ class Config:
     openai_api_key_env: str = ""
     server_host: str = "127.0.0.1"
     server_port: int = 8765
+    allowed_hosts: list[str] = field(default_factory=list)
     demo: bool = False
     path: str | None = None
 
@@ -132,6 +134,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
         openai_api_key_env=ana.get("openai_api_key_env", ""),
         server_host=srv.get("host", Config.server_host),
         server_port=int(srv.get("port", Config.server_port)),
+        allowed_hosts=list(srv.get("allowed_hosts", [])),
         demo=bool(raw.get("demo", False)),
         path=str(p) if p.exists() else None,
     )
