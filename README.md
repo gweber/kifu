@@ -129,7 +129,8 @@ autonomous run, and a slow answer can be a phone call.
 
 ## Privacy
 
-Everything is stored locally. Session digests go to the analysis backend you configure — Anthropic
+Everything is stored locally, and secrets in session text — API keys, tokens, passwords in URLs — are
+redacted when kifu scans, before anything is stored, embedded or analyzed. Session digests go to the analysis backend you configure — Anthropic
 with the default, where the sessions came from in the first place, or a local model if you point
 `[analysis]` at one. The web app and API have no authentication and bind to `127.0.0.1`. See
 [SECURITY.md](SECURITY.md).

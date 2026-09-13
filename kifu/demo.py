@@ -34,6 +34,9 @@ SESSIONS = [
               "The backend is in place: /tides returns 48 hours of predictions computed from the harmonic "
               "constituents. I added a cache so the constituents are loaded once.",
               ["write:tidepool/api/main.py", "write:tidepool/api/harmonics.py", "commit:api: 48h tide predictions"], 35),
+             ("the NOAA endpoint wants a key, use NOAA_API_KEY=9f3c2a7e41b8d6f0c5e2 for now",
+              "Configured through an environment variable; the key is not committed.",
+              ["write:tidepool/api/settings.py"], 5),
              ("go on", "Tests for the harmonic sum are in, and the CI workflow runs them.",
               ["write:tidepool/tests/test_harmonics.py", "commit:tests for harmonic sum"], 20),
              ("could it work offline on the beach? there is no signal down there",

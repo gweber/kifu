@@ -9,6 +9,8 @@ The file is ~/.config/kifu/config.toml (or $KIFU_CONFIG). Every key is optional:
     confirmations = ["weiter", "auf geht's"]   # extra "go on" phrases in your language
     writing_note = "often writes in German and dictates"   # a hint for the analyzer
     automated_markers = ["-ci-runner-"]  # session paths containing these count as automated, not typed
+    redact = true                        # remove secrets from session text when scanning (default)
+    redact_patterns = ["corp-[0-9a-f]{32}"]   # extra regular expressions for your own token formats
 
     [[sources]]                          # where Claude Code keeps sessions; default: this machine only
     host = "laptop"
@@ -66,6 +68,8 @@ class Config:
     confirmations: list[str] = field(default_factory=list)
     writing_note: str = ""
     automated_markers: list[str] = field(default_factory=list)
+    redact: bool = True
+    redact_patterns: list[str] = field(default_factory=list)
     sources: list[Source] = field(default_factory=list)
     embed_url: str = "http://localhost:11434/v1/embeddings"
     embed_model: str = "bge-m3"
@@ -121,6 +125,8 @@ def load(path: str | os.PathLike | None = None) -> Config:
         confirmations=list(raw.get("confirmations", [])),
         writing_note=raw.get("writing_note", ""),
         automated_markers=list(raw.get("automated_markers", [])),
+        redact=bool(raw.get("redact", True)),
+        redact_patterns=list(raw.get("redact_patterns", [])),
         sources=[Source(host=s["host"], path=s.get("path", "~/.claude/projects"), ssh=s.get("ssh"))
                  for s in raw.get("sources", [])],
         embed_url=emb.get("url", Config.embed_url),

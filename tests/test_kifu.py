@@ -98,7 +98,7 @@ def test_configured_confirmations_extend_the_defaults(store):
 def test_moves_skip_claude_code_commands_and_fold_confirmations(store):
     _, con = store
     assert one(con, "SELECT COUNT(*) FROM moves WHERE prompts LIKE '/model%'") == 0
-    folded = one(con, "SELECT prompts FROM moves WHERE prompts LIKE 'I want a small web app%'")
+    folded = one(con, "SELECT prompts FROM moves WHERE prompts LIKE 'the NOAA endpoint wants a key%'")
     assert "• go on" in folded
 
 
@@ -334,3 +334,79 @@ def test_two_ideas_from_the_same_move_get_different_anchors(store):
     con.commit()
     link.build_lines(con, backend="fixture", workers=1, log=lambda m: None)
     assert one(con, "SELECT COUNT(*) FROM lines") == one(con, "SELECT COUNT(DISTINCT anchor) FROM lines")
+
+
+# ---- redaction ---------------------------------------------------------------------------------------------
+
+FAKE = {
+    "anthropic-key": "sk-ant-api03-" + "a1B2" * 12,
+    "openai-key": "sk-proj-" + "Z9y8" * 8,
+    "github-token": "ghp_" + "x7Y6" * 9,
+    "aws-access-key": "AKIA" + "ABCDEFGHIJ234567",
+    "google-api-key": "AIza" + "S" * 35,
+    "slack-token": "xoxb-1234567890-abcdefghij",
+    "jwt": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+    "telegram-bot-token": "1234567890:AA" + "b" * 33,
+}
+
+
+@pytest.mark.parametrize("kind", sorted(FAKE))
+def test_token_formats_are_redacted(store, kind):
+    from kifu.redact import redact
+    out = redact(f"here it is: {FAKE[kind]} thanks")
+    assert FAKE[kind] not in out and f"[redacted:{kind}]" in out
+
+
+@pytest.mark.parametrize("text, secret", [
+    ("export OPENWEATHER_API_KEY=4b7e9c2d8f1a6e3b", "4b7e9c2d8f1a6e3b"),
+    ('{"password": "hunter2hunter2", "user": "ada"}', "hunter2hunter2"),
+    ("DB_PASSWORD: 'Tr0ub4dor&3xyz'", "Tr0ub4dor&3xyz"),
+    ("postgres://ada:s3cretpass@db.local:5432/app", "s3cretpass"),
+    ("curl -H 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456'", "abcdefghijklmnopqrstuvwxyz123456"),
+    ("pty auth rejected cred=token 2e364c24f26a72e4e9df209927e4d1c8", "2e364c24f26a72e4e9df209927e4d1c8"),
+    ("https://host/api/events?channel=chat-1&token=k7Qz91LmXvB2w8PdRt", "k7Qz91LmXvB2w8PdRt"),
+    ("-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n-----END OPENSSH PRIVATE KEY-----", "b3BlbnNzaC1rZXktdjEAAAAA"),
+])
+def test_assigned_and_embedded_secrets_are_redacted(store, text, secret):
+    from kifu.redact import redact
+    assert secret not in redact(text)
+
+
+@pytest.mark.parametrize("text", [
+    "commit 3f9a1c2e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39 fixed it",
+    "session 16551ea1-7849-4d73-9337-83776885cb1b",
+    "API_KEY=${API_KEY}",
+    "set TOKEN=<your-token> in .env",
+    "the token counts dropped after the prompt change",
+    "password reset flow needs a second screen",
+    "self.threshold_tokens = int(self.context_length * self.threshold_percent)",
+    '"token_uri":"https://oauth2.googleapis.com/token"',
+    "XSOAR_API_KEY: required variable is missing",
+    "secret_name = config.token_name",
+    "22:30  big-thinking   27.564 Token   22:31  big-thinking",
+    "before: 10–14 rounds × ~60–90k Token = ~600k–1.3M Token",
+    "~60–90k Token = **825.000–1.270.000 Token**",
+])
+def test_ordinary_text_is_left_alone(store, text):
+    from kifu.redact import redact
+    assert redact(text) == text
+
+
+def test_secrets_never_reach_the_database_or_the_analyzer(store):
+    cfg, con = store
+    secret = "9f3c2a7e41b8d6f0c5e2"
+    for table, column in (("turns", "prompt"), ("moves", "prompts")):
+        assert one(con, f"SELECT COUNT(*) FROM {table} WHERE {column} LIKE ?", f"%{secret}%") == 0
+    assert one(con, "SELECT COUNT(*) FROM turns WHERE prompt LIKE '%[redacted:secret]%'") == 1
+    _, blocks = analyze.digest_moves(con, one(con, "SELECT session_id FROM moves WHERE prompts LIKE '%NOAA%'"))
+    assert not any(secret in b for b in blocks)
+
+
+def test_an_old_database_can_be_scrubbed(store):
+    cfg, con = store
+    from kifu import redact
+    con.execute("UPDATE threads SET quote=? WHERE id=(SELECT MIN(id) FROM threads)", (f"use {FAKE['github-token']}",))
+    con.commit()
+    assert redact.scrub_database(con, log=lambda m: None) == 1
+    assert one(con, "SELECT COUNT(*) FROM threads WHERE quote LIKE '%ghp_%'") == 0
+    assert redact.scrub_database(con, log=lambda m: None) == 0, "scrubbing twice changes nothing"

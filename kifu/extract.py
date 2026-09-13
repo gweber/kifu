@@ -12,6 +12,7 @@ import re
 import shlex
 
 from . import config
+from .redact import redact
 
 ACTIVE_GAP_MIN = 45        # silence that separates a turn's own work from later autonomous wakeups
 REPLY_KEEP = 2400          # chars of assistant text kept per turn (head + tail)
@@ -356,14 +357,16 @@ def store(con, sp, n_subagents, size, mtime, host=None):
     con.execute("""INSERT OR REPLACE INTO sessions(id, path, project, cwd, branch, entrypoint, started, ended, title,
                    ai_title, agent_name, n_prompts, n_turns, n_tool_calls, n_subagents, n_compactions, bytes, automated,
                    digest_hash, host) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (sp.id, sp.path, project_name(cwd), cwd, sp.branch, sp.entrypoint, sp.started, sp.ended, sp.title,
-                 sp.ai_title, sp.agent_name, len(sp.turns), len(sp.turns), sp.meta["tool_calls"], n_subagents,
+                (sp.id, sp.path, project_name(cwd), cwd, sp.branch, sp.entrypoint, sp.started, sp.ended, redact(sp.title),
+                 redact(sp.ai_title), sp.agent_name, len(sp.turns), len(sp.turns), sp.meta["tool_calls"], n_subagents,
                  sp.meta["compactions"], size, automated, digest_hash(sp.turns), host))
+    # Secrets are removed here, before anything is stored: see redact.py.
     con.executemany("INSERT INTO turns(session_id, idx, ts, ended, uuid, prompt, reply, n_tools, files) VALUES (?,?,?,?,?,?,?,?,?)",
-                    [(sp.id, t["idx"], t["ts"], t["ended"], t["uuid"], t["prompt"],
-                      _clip_reply(t["texts"]) if t["texts"] else "", t["n_tools"], json.dumps(t["files"])) for t in sp.turns])
+                    [(sp.id, t["idx"], t["ts"], t["ended"], t["uuid"], redact(t["prompt"]),
+                      redact(_clip_reply(t["texts"])) if t["texts"] else "", t["n_tools"], json.dumps(t["files"]))
+                     for t in sp.turns])
     con.executemany("INSERT INTO evidence(session_id, turn_idx, ts, kind, value, source) VALUES (?,?,?,?,?,?)",
-                    [(sp.id, *e) for e in sp.evidence])
+                    [(sp.id, idx, ts, kind, redact(value), source) for idx, ts, kind, value, source in sp.evidence])
     for remote in sp.teleported:
         con.execute("INSERT OR REPLACE INTO links VALUES (?,?,?,?,?)", (sp.id, remote, "teleport", 1.0, "teleported-from"))
     con.execute("INSERT OR REPLACE INTO files(path, size, mtime, session_id, kind) VALUES (?,?,?,?,?)",

@@ -25,6 +25,22 @@ Open an issue, or for anything that should not be public, a private security adv
   refused when the browser reports another `Origin` (403). Behind your own authenticating proxy, add
   its host name to `[server] allowed_hosts`.
 
+## Secrets in sessions
+
+Sessions are full of credentials: keys pasted into prompts, tokens in config files the assistant read back,
+passwords in connection strings. kifu **redacts them when it scans**, before anything is stored — so the
+database, the web app, the API, the embeddings and the analysis backend never see them. The session files and
+the archive are not changed.
+
+It recognises the common token formats (Anthropic, OpenAI, GitHub, GitLab, Slack, AWS, Google, Hugging Face,
+Stripe, Telegram bot tokens, JWTs, private key blocks), credentials in URLs, bearer headers, and values
+assigned to names like `API_KEY`, `password` or `client_secret` when the value looks like a secret rather than
+code, a URL, a quantity or a word. Add your own formats with `redact_patterns`. A database filled by an older
+version is cleaned with `kifu redact`.
+
+Redaction is pattern matching: it catches what looks like a secret, not everything that is one. Treat the
+database as sensitive anyway.
+
 ## What leaves the machine
 
 - **Analysis** sends a digest of each session (your prompts and the end of each reply) to the backend

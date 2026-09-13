@@ -5,6 +5,8 @@ timezone = "Europe/Lisbon"                # for rhythm and habits; default: the 
 project_roots = ["~/code"]                # ~/code/tidepool is shown as tidepool
 # writing_note = "often writes in German and dictates"
 # confirmations = ["weiter", "passt"]     # "go on" in your own words
+# redact = true                           # remove secrets from session text when scanning (default)
+# redact_patterns = ["corp-[0-9a-f]{32}"] # your own token formats
 
 # Where Claude Code keeps sessions. Without [[sources]], only this machine's ~/.claude/projects.
 [[sources]]

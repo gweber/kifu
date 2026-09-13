@@ -136,6 +136,11 @@ def cmd_demo(args, con):
     print(f"\nTry it:\n  KIFU_CONFIG={path} kifu serve\n  KIFU_CONFIG={path} kifu ideas")
 
 
+def cmd_redact(args, con):
+    from . import redact
+    redact.scrub_database(con)
+
+
 def cmd_config(args, con):
     cfg = config.get()
     out = dataclasses.asdict(cfg)
@@ -187,6 +192,7 @@ def main(argv=None):
     s = sub.add_parser("demo", help="build a store from synthetic sessions, no model calls")
     s.add_argument("dir")
     sub.add_parser("config", help="print the effective settings")
+    sub.add_parser("redact", help="remove secrets from a database filled before redaction existed")
 
     args = p.parse_args(argv)
     if args.config:
@@ -198,7 +204,8 @@ def main(argv=None):
         con = db.connect(args.db)
     {"pull": cmd_pull, "scan": cmd_scan, "embed": cmd_embed, "analyze": cmd_analyze, "link": cmd_link,
      "verify": cmd_verify, "run": cmd_run, "ideas": cmd_ideas, "sessions": cmd_sessions, "show": cmd_show, "threads": cmd_threads,
-     "serve": cmd_serve, "report": cmd_report, "demo": cmd_demo, "config": cmd_config}[args.cmd](args, con)
+     "serve": cmd_serve, "report": cmd_report, "demo": cmd_demo, "config": cmd_config,
+     "redact": cmd_redact}[args.cmd](args, con)
 
 
 if __name__ == "__main__":
