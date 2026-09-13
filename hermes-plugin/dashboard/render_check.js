@@ -111,6 +111,8 @@ if (!registered.kifu) { console.error("FAIL: bundle registered nothing under 'ki
     const firstTitle = fixtures["/lines"].items[0].title;
     check(el.textContent.includes(firstTitle), "open ideas tab lists the top idea");
     check(el.querySelectorAll("button").length > 5, "cards offer Done, Dismiss and Trail");
+    check(/touched its files since it went quiet/.test(el.textContent), "git activity is shown on a card");
+    check(el.querySelectorAll("li.line-through").length === 1, "a settled loose end is struck through");
 
     const trail = button(el, /^Trail/);
     await click(trail); await settle();

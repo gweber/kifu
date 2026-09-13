@@ -6,7 +6,7 @@ import os
 import sys
 import time
 
-from . import analyze, config, db, embed, extract, link, report, sources
+from . import analyze, config, db, embed, extract, link, report, sources, verify
 
 
 def cmd_pull(args, con):
@@ -44,6 +44,10 @@ def cmd_link(args, con):
     link.build_lines(con, backend=args.backend, workers=args.workers)
 
 
+def cmd_verify(args, con):
+    verify.verify(lambda: db.connect(args.db), backend=args.backend, workers=args.workers)
+
+
 def cmd_run(args, con):
     """Everything, incrementally: only new or changed sessions cost model time."""
     sources.pull()
@@ -51,6 +55,7 @@ def cmd_run(args, con):
     cmd_embed(args, con)
     failed = analyze.analyze(lambda: db.connect(args.db), backend=args.backend, workers=args.workers)
     link.build_lines(con, backend=args.backend, workers=args.workers)
+    verify.verify(lambda: db.connect(args.db), backend=args.backend, workers=args.workers)
     if failed:
         sys.exit(f"{failed} sessions failed to analyze; the next run retries them")
 
@@ -154,7 +159,8 @@ def main(argv=None):
     sub.add_parser("embed", help="group turns into moves and embed them")
     for name, help_ in (("analyze", "list each session's threads and loose ends with a model"),
                         ("link", "follow the same idea across sessions"),
-                        ("run", "pull, scan, embed, analyze and link: only new work costs model time")):
+                        ("verify", "check open ideas against git: later commits, settled loose ends"),
+                        ("run", "pull, scan, embed, analyze, link and verify: only new work costs model time")):
         s = sub.add_parser(name, help=help_)
         s.add_argument("--backend", choices=sorted(analyze.BACKENDS))
         s.add_argument("--workers", type=int)
@@ -191,7 +197,7 @@ def main(argv=None):
         args.db = args.db or config.get().db_path
         con = db.connect(args.db)
     {"pull": cmd_pull, "scan": cmd_scan, "embed": cmd_embed, "analyze": cmd_analyze, "link": cmd_link,
-     "run": cmd_run, "ideas": cmd_ideas, "sessions": cmd_sessions, "show": cmd_show, "threads": cmd_threads,
+     "verify": cmd_verify, "run": cmd_run, "ideas": cmd_ideas, "sessions": cmd_sessions, "show": cmd_show, "threads": cmd_threads,
      "serve": cmd_serve, "report": cmd_report, "demo": cmd_demo, "config": cmd_config}[args.cmd](args, con)
 
 

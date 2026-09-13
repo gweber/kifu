@@ -3,8 +3,8 @@
 Brings [kifu](../README.md) into [Hermes Agent](https://github.com/NousResearch/hermes-agent): the ideas
 left behind in your Claude Code sessions, where your agent and your dashboard can see them.
 
-- **An Ideas tab** in the dashboard: open ideas with their loose ends, the trail through sessions with
-  resume commands, Done and Dismiss, and a glance at how you work.
+- **An Ideas tab** in the dashboard: open ideas with their loose ends, what git shows happened to their
+  files since, the trail through sessions with resume commands, Done and Dismiss, and a glance at how you work.
 - **Three agent tools** — ask "what did I leave unfinished in tidepool?" or "where did the offline idea
   start?":
   `kifu_ideas` (search open ideas), `kifu_idea` (one idea's trail), `kifu_mark` (only when you say so).

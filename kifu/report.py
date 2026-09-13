@@ -4,7 +4,7 @@ import json
 import os
 import socket
 
-from . import config, habits
+from . import config, habits, verify
 from .extract import area_of
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "report.html")
@@ -24,12 +24,14 @@ def collect(con, habits_data=None):
     by_line = {}
     for t in threads:
         by_line.setdefault(t["line_id"], []).append(t)
-    marks = {m["anchor"]: dict(m) for m in con.execute("SELECT * FROM marks")}
+    marks = {m["anchor"]: dict(m) for m in con.execute("SELECT anchor, state, note, updated FROM marks")}
+    checks = {c["anchor"]: c for c in con.execute("SELECT * FROM checks")}
     lines = []
     for l in con.execute("SELECT * FROM lines ORDER BY score DESC, last_ts DESC"):
         members = by_line.get(l["id"], [])
         lines.append({
             "id": l["id"], "anchor": l["anchor"], "mark": marks.get(l["anchor"]), "title": l["title"],
+            "check": verify.summarize(checks.get(l["anchor"]), json.loads(l["loose_ends"] or "[]")),
             "summary": l["summary"], "status": l["status"], "project": l["project"],
             "areas": json.loads(l["areas"] or "[]"), "first": l["first_ts"], "last": l["last_ts"],
             "n_sessions": l["n_sessions"], "score": l["score"], "verdict": l["verdict"] or "",
@@ -42,6 +44,12 @@ def collect(con, habits_data=None):
                          "resume": resume_command(by_id[t["session_id"]]) if t["session_id"] in by_id else None}
                         for t in members],
         })
+    for line in lines:
+        # Every loose end looks settled by later commits: probably done outside the sessions.
+        if line["check"] and line["check"]["likely_done"] and line["score"] > 0:
+            line["score"] = round(line["score"] * verify.LIKELY_DONE_FACTOR, 2)
+    lines.sort(key=lambda l: l["last"], reverse=True)           # among equal scores, most recent first
+    lines.sort(key=lambda l: l["score"], reverse=True)
     stats = {
         "sessions": len(sess),
         "turns": sum(s["turns"] for s in sess),
@@ -80,7 +88,16 @@ def compact(line, data):
             "mark": (line["mark"] or {}).get("state"), "verdict": line["verdict"], "next": line["next"],
             "loose_ends": line["loose"][:3], "more_loose_ends": max(0, len(line["loose"]) - 3),
             "quote": line["threads"][0]["quote"] if line["threads"] else "",
-            "resume": resume_command(latest) if latest else None}
+            "resume": resume_command(latest) if latest else None,
+            "activity": _activity(line["check"])}
+
+
+def _activity(check):
+    """None when git could not look (no repository, host unreachable): silence, not "no commits"."""
+    if not check or (check["error"] and not check["commits_since"]):
+        return None
+    return {k: check[k] for k in ("commits_since", "commits_capped", "latest_commit", "settled", "likely_done", "note",
+                                  "missing_files")}
 
 
 def render(con, out_path):

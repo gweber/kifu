@@ -1,10 +1,12 @@
+import datetime as dt
 import json
 import os
 import sqlite3
+import subprocess
 
 import pytest
 
-from kifu import analyze, db, embed, extract, habits, link, report
+from kifu import analyze, db, embed, extract, habits, link, marks, report, verify
 from kifu.embed import is_continuation
 
 
@@ -145,8 +147,7 @@ def test_only_open_ideas_score(store):
 def test_marks_survive_a_relink(store):
     cfg, con = store
     anchor = one(con, "SELECT anchor FROM lines WHERE title='Weekend low-tide push alerts'")
-    con.execute("INSERT INTO marks VALUES (?, 'dismissed', '', '2026-03-01')", (anchor,))
-    con.commit()
+    marks.set_mark(con, anchor, "dismissed")
     con.execute("UPDATE lines SET verdict='x'")      # anything; the rebuild replaces lines
     link.build_lines(con, backend="fixture", workers=1, log=lambda m: None)
     data = report.collect(con, habits_data={})
@@ -244,3 +245,92 @@ def test_dns_rebinding_and_cross_site_writes_are_refused(client, store):
                       headers={"origin": "http://127.0.0.1:8765"}).status_code == 200
     cfg.allowed_hosts = ["kifu.example.org"]
     assert client.get("/api/stats", headers={"host": "kifu.example.org"}).status_code == 200
+
+
+def test_a_mark_follows_its_idea_when_reanalysis_moves_the_anchor(store):
+    _, con = store
+    old_anchor = one(con, "SELECT anchor FROM lines WHERE title='Offline mode for tidepool'")
+    marks.set_mark(con, old_anchor, "done")
+    # Re-analysing the first session finds the idea one turn later: its anchor changes.
+    sid, turn = old_anchor.split(":")[:2]
+    con.execute("UPDATE threads SET first_turn=first_turn+1 WHERE session_id=? AND first_turn=?", (sid, int(turn)))
+    con.commit()
+    link.build_lines(con, backend="fixture", workers=1, log=lambda m: None)
+    new_anchor = one(con, "SELECT anchor FROM lines WHERE title='Offline mode for tidepool'")
+    assert new_anchor != old_anchor
+    assert one(con, "SELECT state FROM marks WHERE anchor=?", new_anchor) == "done"
+    assert one(con, "SELECT COUNT(*) FROM marks") == 1
+
+
+def test_a_mark_without_a_matching_idea_stays_unattached(store):
+    _, con = store
+    anchor = one(con, "SELECT anchor FROM lines WHERE title='Offline mode for tidepool'")
+    marks.set_mark(con, anchor, "dismissed")
+    con.execute("UPDATE marks SET anchor='gone:0', sessions='[]'")      # its sessions no longer hold the idea
+    con.commit()
+    assert marks.reattach(con, log=lambda m: None) == (0, 1)
+    data = report.collect(con, habits_data={})
+    assert not any(l["mark"] for l in data["lines"]), "an orphaned mark must not land on some other idea"
+
+
+# ---- verify ------------------------------------------------------------------------------------------------
+
+def _git(repo, *args, date=None):
+    env = {**os.environ, "GIT_AUTHOR_NAME": "Ada", "GIT_AUTHOR_EMAIL": "ada@example.org",
+           "GIT_COMMITTER_NAME": "Ada", "GIT_COMMITTER_EMAIL": "ada@example.org"}
+    if date:
+        env["GIT_AUTHOR_DATE"] = env["GIT_COMMITTER_DATE"] = date
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, env=env)
+
+
+def test_verify_finds_later_commits_that_settle_an_idea(store, tmp_path):
+    cfg, con = store
+    line = con.execute("SELECT * FROM lines WHERE title='Weekend low-tide push alerts'").fetchone()
+    thread = con.execute("SELECT * FROM threads WHERE line_id=?", (line["id"],)).fetchone()
+    repo = tmp_path / "tidepool"
+    (repo / "jobs").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    alerts = repo / "jobs" / "alerts.py"
+    alerts.write_text("# first draft\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "draft alerts, during the session", date=line["last_ts"])
+    # The idea's session wrote this file; move the session to the temporary repository.
+    con.execute("UPDATE sessions SET cwd=? WHERE id=?", (str(repo), thread["session_id"]))
+    con.execute("INSERT INTO evidence VALUES (?,?,?,?,?,?)",
+                (thread["session_id"], thread["first_turn"], line["last_ts"], "write", str(alerts), "main"))
+    con.commit()
+    later = (dt.datetime.fromisoformat(line["last_ts"].replace("Z", "+00:00")) + dt.timedelta(days=9)).isoformat()
+    for subject in ("add daily job that checks the next 7 days", "web push subscription for alerts"):
+        alerts.write_text(alerts.read_text() + subject + "\n")
+        _git(repo, "commit", "-qam", subject, date=later)
+
+    counts = verify.verify(lambda: db.connect(cfg.db_path), backend="fixture", workers=1, log=lambda m: None)
+    assert counts["with_commits"] == 1 and counts["likely_done"] == 1
+    data = report.collect(con, habits_data={})
+    idea = next(l for l in data["lines"] if l["title"] == "Weekend low-tide push alerts")
+    check = idea["check"]
+    assert check["commits_since"] == 2, "the commit made during the session does not count"
+    assert check["likely_done"] and len(check["settled"]) == 2
+    assert idea["score"] == round(line["score"] * verify.LIKELY_DONE_FACTOR, 2)
+    assert data["lines"][0]["title"] != "Weekend low-tide push alerts", "a likely-done idea drops down the ranking"
+    assert report.compact(idea, data)["activity"]["latest_commit"]["subject"].startswith("web push")
+
+
+def test_verify_says_so_when_an_idea_wrote_no_files(store):
+    cfg, con = store
+    verify.verify(lambda: db.connect(cfg.db_path), backend="fixture", workers=1, log=lambda m: None)
+    errors = [c["error"] for c in con.execute("SELECT error FROM checks")]
+    assert errors and all(e for e in errors), "demo sessions live in /home/ada, which is no repository here"
+
+
+def test_two_ideas_from_the_same_move_get_different_anchors(store):
+    cfg, con = store
+    first = con.execute("SELECT * FROM threads ORDER BY id LIMIT 1").fetchone()
+    con.execute("""INSERT INTO threads(session_id, title, summary, kind, status, first_turn, last_turn, first_ts, last_ts,
+                   quote, next_step, keywords, loose_ends, backend, digest_hash)
+                   SELECT session_id, 'A second idea in the same move', 'x', 'idea', 'proposed', first_turn, last_turn,
+                   first_ts, last_ts, quote, '', '["zzz"]', '["something"]', backend, digest_hash FROM threads WHERE id=?""",
+                (first["id"],))
+    con.commit()
+    link.build_lines(con, backend="fixture", workers=1, log=lambda m: None)
+    assert one(con, "SELECT COUNT(*) FROM lines") == one(con, "SELECT COUNT(DISTINCT anchor) FROM lines")

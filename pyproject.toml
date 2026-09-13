@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kifu"
-version = "0.1.1"
+version = "0.2.0"
 description = "Find the ideas you left behind in your Claude Code sessions: loose ends, where each idea moved, and how you work."
 readme = "README.md"
 license = "MIT"

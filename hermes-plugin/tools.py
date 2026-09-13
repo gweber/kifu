@@ -34,8 +34,19 @@ def idea(args: dict) -> dict:
     return {"ok": True, "title": data["title"], "status": data["status"], "mark": (data["mark"] or {}).get("state"),
             "summary": data["summary"], "verdict": data["verdict"], "next": data["next"],
             "loose_ends": data["loose"], "first": data["first"][:10], "last": data["last"][:10],
+            "after_it_went_quiet": _after_quiet(data.get("check")),
             "trail": [{"date": t["first"][:10], "project": t["project"], "title": t["title"], "status": t["status"],
                        "quote": t["quote"], "resume": t["resume"]} for t in data["threads"]]}
+
+
+def _after_quiet(check):
+    """What git shows about the idea's files since its last session, if kifu verify could look."""
+    if not check or (check.get("error") and not check.get("commits_since")):
+        return None
+    return {"commits": f"{check['commits_since']}+" if check.get("commits_capped") else check["commits_since"],
+            "latest_commit": check["latest_commit"],
+            "loose_ends_that_look_settled": check["settled"], "looks_done": check["likely_done"],
+            "files_gone": check["missing_files"], "note": check["note"]}
 
 
 def mark(args: dict) -> dict:

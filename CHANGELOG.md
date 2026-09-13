@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 — 2026-09-13
+
+- **`kifu verify`** (also part of `kifu run`): checks open ideas against git on the machine each session ran
+  on. Commits that touched an idea's files after it went quiet are shown on the idea, a model reads their
+  messages against the loose ends, settled loose ends are struck through, and an idea whose loose ends all
+  look settled drops down the ranking and out of the digest. The Hermes tab and `kifu_idea` show it too.
+- **Marks follow their idea** when re-analysis moves its anchor: a mark remembers the idea's sessions and
+  meaning, and a rebuild re-attaches it to the matching idea — or leaves it unattached rather than guessing.
+- **Fix:** two ideas found in the same move shared an anchor, so marking one marked both. Anchors now carry
+  a short hash of the idea's first title; existing marks are re-attached on the next `kifu link`.
+- **Fix:** checks and judgements are written after all workers finish, instead of waiting on a lock the
+  main loop held.
+
 ## 0.1.1 — 2026-09-13
 
 - **Security:** the API refuses DNS rebinding (only loopback `Host` names, 421 otherwise) and

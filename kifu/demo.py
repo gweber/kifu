@@ -303,6 +303,8 @@ def _by_title():
 def fixture_backend(system, user, schema):
     if "same_idea" in schema.get("properties", {}):
         return _consolidate(user)
+    if "settled" in schema.get("properties", {}):
+        return _judge(user)
     title = re.match(r"Session: (.*?) \|", user).group(1)
     spec = _by_title()[title]
     moves = re.findall(r"\[M(\d+) [^\]]*\]\nUSER: (.*?)\nASSISTANT", user, re.S)
@@ -318,6 +320,18 @@ def fixture_backend(system, user, schema):
          "status": t["status"],
          "first_move": move_of(t["at"]), "last_move": max(move_of(t["at"]), move_of(t["to"])), "quote": t["quote"],
          "loose_ends": t["loose"], "next_step": t["next"], "keywords": t["keywords"]} for t in spec["threads"]]}
+
+
+def _judge(user):
+    """A loose end counts as settled when a commit subject contains most of its words."""
+    loose = re.findall(r"^(\d+)\. (.*)$", user.split("Later commits")[0], re.M)
+    subjects = " ".join(re.findall(r"^- \S+ (.*)$", user, re.M)).lower()
+    settled = []
+    for number, text in loose:
+        words = [w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 3]
+        if words and sum(w in subjects for w in words) >= 0.6 * len(words):
+            settled.append(int(number))
+    return {"settled": settled, "note": f"{len(settled)} of {len(loose)} loose ends appear in later commits."}
 
 
 def _consolidate(user):

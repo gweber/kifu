@@ -104,9 +104,14 @@ MCP servers, settings or skills: a session of a few dozen prompts is around ten 
 | **embed** | fold "go on" and "yes do both" into the prompt they confirm; embed each move | local or any endpoint |
 | **analyze** | a model reads each session's moves and lists its threads: title, kind, status, your quote, loose ends, next step | cached per session |
 | **link** | group the same idea across sessions by embedding; a model consolidates each group — or splits it if the ideas are only related — and drops loose ends a later session settled; open ideas get an aji score | cached per group |
+| **verify** | for each open idea, ask git — on the machine the session ran on — which commits touched its files after it went quiet; a model reads those commit messages against the loose ends | model calls only for ideas with later commits, cached |
 
 Status comes from what the sessions show: writes and commits count as evidence, a reply that says
-"done" does not.
+"done" does not. But work often finishes outside a session — from the terminal, another agent, a session
+that never mentions the idea — so `verify` adds what git shows: *"20+ commits touched its files since it
+went quiet; none of them address the loose ends"*, or a loose end struck through because a commit settled it.
+An idea whose loose ends all look settled drops down the ranking and out of the digest, but stays visible.
+It is evidence, not a verdict: ideas that wrote no files, or live outside a git repository, cannot be checked.
 
 ### What the habits measure
 

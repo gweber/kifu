@@ -76,6 +76,23 @@
         h(CopyCommand, { command: t.resume })))));
   }
 
+  // What git says happened after the idea went quiet (kifu verify).
+  function Activity({ activity }) {
+    if (!activity) return null;
+    const lc = activity.latest_commit;
+    const subject = lc && lc.subject.length > 100 ? lc.subject.slice(0, 97) + "…" : lc && lc.subject;
+    const n = `${activity.commits_since}${activity.commits_capped ? "+" : ""}`;
+    const text = activity.commits_since
+      ? `${n} commit${activity.commits_since > 1 ? "s" : ""} touched its files since it went quiet` +
+        (lc ? ` · latest ${lc.date.slice(0, 10)}: “${subject}”` : "")
+      : "No commits touched its files since it went quiet";
+    return h("div", { className: "mt-2 rounded-md border px-3 py-2 text-xs" },
+      activity.likely_done && h(C.Badge, { variant: "secondary", className: "mr-2" }, "looks done"),
+      text,
+      activity.missing_files ? ` · ${activity.missing_files} of its files are gone` : "",
+      activity.note && h("div", { className: "mt-1 text-muted-foreground" }, activity.note));
+  }
+
   function IdeaCard({ idea, onMarked }) {
     const [open, setOpen] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -104,8 +121,12 @@
                  h(C.Button, { key: "x", size: "sm", variant: "ghost", disabled: busy, onClick: () => mark("dismissed") }, "Dismiss")])),
         error && h(Note, { message: error, tone: "error" }),
         idea.verdict && h("p", { className: "mt-2 text-sm" }, idea.verdict),
+        h(Activity, { activity: idea.activity }),
         idea.loose_ends.length > 0 && h("ul", { className: "mt-2 list-disc pl-5 text-sm" },
-          idea.loose_ends.map((x, i) => h("li", { key: i }, x))),
+          idea.loose_ends.map((x, i) => {
+            const settled = idea.activity && idea.activity.settled.includes(x);
+            return h("li", { key: i, className: settled ? "line-through text-muted-foreground" : "" }, x);
+          })),
         h("div", { className: "mt-2" },
           h(C.Button, { size: "sm", variant: "ghost", onClick: () => setOpen(!open) },
             open ? "Hide trail" : (idea.more_loose_ends ? `Trail and ${idea.more_loose_ends} more loose ends` : "Trail"))),

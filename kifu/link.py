@@ -11,7 +11,7 @@ import json
 
 import numpy as np
 
-from . import analyze, config, embed
+from . import analyze, config, embed, marks
 from .extract import area_of
 
 DISTANCE = 0.30           # cosine distance for "same idea"; the LLM splits groups that are only related
@@ -197,7 +197,8 @@ def build_lines(con, backend=None, workers=None, log=print):
             row.pop("input_hash", None)
         score = score_line(row["status"], row["kinds"], len(row["loose_ends"]), row["n_sessions"], row["last_ts"], now_ts)
         first = min((threads[tid] for tid in row["thread_ids"]), key=lambda t: t["first_ts"])
-        anchor = f"{first['session_id']}:{first['first_turn']}"
+        # session:turn alone collides when one move holds two ideas; the title hash tells them apart.
+        anchor = f"{first['session_id']}:{first['first_turn']}:{hashlib.sha1(first['title'].encode()).hexdigest()[:6]}"
         cur = con.execute("""INSERT INTO lines(title, summary, project, status, first_ts, last_ts, n_sessions, score,
                              verdict, loose_ends, next_step, areas, input_hash, thread_ids, anchor)
                              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -206,3 +207,4 @@ def build_lines(con, backend=None, workers=None, log=print):
                            json.dumps(row["areas"]), row.get("input_hash"), json.dumps(row["thread_ids"]), anchor))
         con.executemany("UPDATE threads SET line_id=? WHERE id=?", [(cur.lastrowid, tid) for tid in row["thread_ids"]])
     con.commit()
+    marks.reattach(con, log=log)

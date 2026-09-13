@@ -17,10 +17,10 @@ from typing import Literal
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from . import config, db, habits, report
+from . import config, db, habits, marks, report
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-JOB_KINDS = ("pull", "scan", "embed", "analyze", "link", "run")
+JOB_KINDS = ("pull", "scan", "embed", "analyze", "link", "verify", "run")
 
 app = FastAPI(title="kifu", version="1.0",
               description="Ideas, loose ends and work habits recovered from Claude Code sessions.")
@@ -148,7 +148,8 @@ def overview(top: int = Query(5, le=50)):
 def digest(quiet_days: int = Query(21, ge=0), limit: int = Query(5, le=50)):
     data = payload()
     items = [report.compact(l, data) for l in data["lines"] if _open(l)]
-    items = [i for i in items if i["quiet_days"] >= quiet_days][:limit]
+    items = [i for i in items if i["quiet_days"] >= quiet_days
+             and not (i["activity"] and i["activity"]["likely_done"])][:limit]
     if not items:
         return {"items": [], "text": f"No open idea has been quiet for {quiet_days} days or more."}
     lines = [f"{len(items)} idea{'s' if len(items) > 1 else ''} quiet for {quiet_days}+ days:"]
@@ -248,13 +249,7 @@ def get_habits():
 def mark(anchor: str, state: Literal["done", "dismissed", "open"] = Body(..., embed=True),
          note: str = Body("", embed=True)):
     line_ = _line(anchor)
-    c = con()
-    if state == "open":
-        c.execute("DELETE FROM marks WHERE anchor=?", (line_["anchor"],))
-    else:
-        c.execute("INSERT OR REPLACE INTO marks VALUES (?,?,?,?)",
-                  (line_["anchor"], state, note, dt.datetime.now(dt.UTC).isoformat(timespec="seconds")))
-    c.commit()
+    marks.set_mark(con(), line_["anchor"], state, note)
     _invalidate()
     return _line(line_["anchor"])
 
@@ -289,7 +284,7 @@ def _run_job(job):
 
 
 @app.post("/api/jobs", status_code=202, summary="Start pull, scan, embed, analyze, link or run in the background")
-def start_job(kind: Literal["pull", "scan", "embed", "analyze", "link", "run"] = Body(..., embed=True)):
+def start_job(kind: Literal["pull", "scan", "embed", "analyze", "link", "verify", "run"] = Body(..., embed=True)):
     with _jobs_lock:
         running = [j for j in _jobs.values() if j["status"] == "running"]
         if running:

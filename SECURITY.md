@@ -34,6 +34,15 @@ Open an issue, or for anything that should not be public, a private security adv
 - **Embeddings** go to the endpoint in `[embeddings]`: short idea summaries and move texts.
 - **Nothing else.** No telemetry, no update checks.
 
+## Commands kifu runs
+
+- `kifu pull` runs `rsync` against each source, over `ssh` for remote ones.
+- `kifu verify` runs `git rev-parse`, `git log` and an existence test for files, in the working directory of
+  each session, on the machine the session came from (over `ssh` for remote sources). Directories and file
+  paths come from session files, so they are passed as separate arguments and shell-quoted for `ssh`, never
+  interpolated into a command string. `verify` only reads; it never changes a repository.
+- Commit subjects found by `verify` go to the analysis backend, together with the idea's loose ends.
+
 ## Untrusted content
 
 Session content is untrusted input: it includes web pages, tool output and files that passed through

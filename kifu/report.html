@@ -61,6 +61,10 @@ ul.loose { margin: 6px 0; padding-left: 20px; }
 ul.loose li { margin: 2px 0; }
 .next { font-size: 13px; }
 .next b { color: var(--accent); }
+.activity { font-size: 13px; margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--chip); }
+.activity b { font-weight: 600; }
+ul.loose li.settled { text-decoration: line-through; color: var(--muted); }
+.chip.done-ish { color: var(--shipped); }
 details { margin-top: 8px; }
 summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .trail { margin: 6px 0 0; padding: 0; list-style: none; }
@@ -258,11 +262,29 @@ function card(l, open = false) {
     ${l.verdict ? `<div class="verdict">${esc(l.verdict)}</div>` : ""}
     <div class="summary">${esc(l.summary)}</div>
     ${firstQuote ? `<div class="quote">“${esc(firstQuote)}”</div>` : ""}
-    ${l.loose.length ? `<ul class="loose">${l.loose.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    ${activity(l.check)}
+    ${l.loose.length ? `<ul class="loose">${l.loose.map(x => `<li${l.check && l.check.settled.includes(x) ? ' class="settled" title="looks settled by a later commit"' : ""}>${esc(x)}</li>`).join("")}</ul>` : ""}
     ${l.next ? `<div class="next"><b>Next:</b> ${esc(l.next)}</div>` : ""}
     <details ${open ? "open" : ""}><summary>Trail through ${l.threads.length} thread${l.threads.length > 1 ? "s" : ""}</summary>
       <ul class="trail">${trail}</ul></details>
   </article>`;
+}
+
+function activity(c) {
+  if (!c || (c.error && !c.commits_since)) return "";
+  const parts = [];
+  if (c.commits_since) {
+    const lc = c.latest_commit;
+    const n = `${c.commits_since}${c.commits_capped ? "+" : ""}`;
+    const subject = lc && lc.subject.length > 100 ? lc.subject.slice(0, 97) + "…" : lc && lc.subject;
+    parts.push(`<b>${n} commit${c.commits_since > 1 ? "s" : ""}</b> touched its files since it went quiet` +
+      (lc ? ` · latest ${fmt(lc.date)}: “${esc(subject)}”` : ""));
+  } else {
+    parts.push("No commits touched its files since it went quiet");
+  }
+  if (c.missing_files) parts.push(`${c.missing_files} of its files are gone`);
+  const head = c.likely_done ? `<span class="chip done-ish">looks done</span> ` : "";
+  return `<div class="activity">${head}${parts.join(" · ")}${c.note ? `<br>${esc(c.note)}` : ""}</div>`;
 }
 
 function renderAji() {

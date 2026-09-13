@@ -55,7 +55,7 @@ CREATE INDEX IF NOT EXISTS threads_line ON threads(line_id);
 CREATE TABLE IF NOT EXISTS analyzed(
   session_id TEXT PRIMARY KEY, digest_hash TEXT, backend TEXT, n_threads INT);
 
--- Lines: the same idea followed across sessions. anchor = session_id:first_turn of its first thread.
+-- Lines: the same idea followed across sessions. anchor = session_id:first_turn:title hash of its first thread.
 CREATE TABLE IF NOT EXISTS lines(
   id INTEGER PRIMARY KEY, title TEXT, summary TEXT, project TEXT, status TEXT,
   first_ts TEXT, last_ts TEXT, n_sessions INT, score REAL, verdict TEXT,
@@ -63,8 +63,15 @@ CREATE TABLE IF NOT EXISTS lines(
 CREATE INDEX IF NOT EXISTS lines_anchor ON lines(anchor);
 
 -- The user's own verdict on an idea, kept across rebuilds of lines.
+-- git evidence for open ideas (verify.py): commits after an idea went quiet, and which loose ends they settle.
+CREATE TABLE IF NOT EXISTS checks(
+  anchor TEXT PRIMARY KEY, checked TEXT, host TEXT, repo TEXT, files INT, missing INT,
+  commits TEXT, settled TEXT, note TEXT, error TEXT);
+CREATE TABLE IF NOT EXISTS judged(input_hash TEXT PRIMARY KEY, settled TEXT, note TEXT);
+
+-- sessions and vec let a mark find its idea again when a rebuild moves the anchor (see marks.py).
 CREATE TABLE IF NOT EXISTS marks(
-  anchor TEXT PRIMARY KEY, state TEXT, note TEXT, updated TEXT);
+  anchor TEXT PRIMARY KEY, state TEXT, note TEXT, updated TEXT, sessions TEXT, vec BLOB);
 """
 
 # Superseded objects from before 1.0.
