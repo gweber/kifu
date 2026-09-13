@@ -1,5 +1,4 @@
 import datetime as dt
-import os
 import shutil
 
 import pytest
@@ -27,14 +26,17 @@ def demo_template(tmp_path_factory):
 
 
 @pytest.fixture
-def store(demo_template, tmp_path):
+def store(demo_template, tmp_path, monkeypatch):
     root = tmp_path / "demo"
     shutil.copytree(demo_template, root)
     cfg_path = root / "config.toml"
     text = cfg_path.read_text().replace(str(demo_template), str(root))
     cfg_path.write_text(text)
+    # Subprocesses (jobs, hooks, the MCP server) read the environment: they must see the demo store, never the
+    # config of the machine running the tests.
+    monkeypatch.setenv("KIFU_CONFIG", str(cfg_path))
+    monkeypatch.setenv("KIFU_DB", "")
     cfg = use(cfg_path)
     con = db.connect(cfg.db_path)
     yield cfg, con
     con.close()
-    os.environ.pop("KIFU_CONFIG", None)

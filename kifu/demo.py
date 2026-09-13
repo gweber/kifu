@@ -23,7 +23,8 @@ HOME = "/home/ada"
 # ---- the story ----------------------------------------------------------------------------------------------
 # Each session: host, project, when (days before the demo's "now", hour), title, turns.
 # A turn: (prompt, reply, tools, minutes the assistant works). Tools: "write:<path>", "commit:<msg>",
-# "ask:recommended" | "ask:option" | "ask:dismissed", "sub:write:<path>", "gap" (hours of autonomous work).
+# "ask:recommended" | "ask:option" | "ask:dismissed", "sub:write:<path>", "gap" (hours of autonomous work),
+# "queue:<text>" (a message the user typed while the assistant was still working).
 # Each session also says which threads a careful reader would find, keyed by the prompt text they start at.
 
 SESSIONS = [
@@ -63,7 +64,8 @@ SESSIONS = [
               ["write:sensor-hub/hub.py", "write:sensor-hub/store.py", "commit:hub: store and chart moisture"], 50),
              ("add battery voltage too, the sensors die without warning",
               "Battery voltage is stored and the chart shows a warning line at 3.3 V.",
-              ["write:sensor-hub/hub.py", "commit:battery telemetry"], 25),
+              ["write:sensor-hub/hub.py", "queue:by the way, could the hub also send me a weekly email summary per bed?",
+               "commit:battery telemetry"], 25),
              ("ok", "Anything else for the hub?", [], 1),
          ],
          threads=[
@@ -73,6 +75,11 @@ SESSIONS = [
              dict(at="add battery voltage", to="ok", title="Battery telemetry for sensors", kind="feature",
                   status="shipped", quote="add battery voltage too, the sensors die without warning", loose=[], next="",
                   keywords=["sensor-hub", "battery", "voltage", "telemetry"]),
+             dict(at="weekly email summary", to="weekly email summary", title="Weekly email summary per garden bed",
+                  kind="idea", status="proposed", quote="could the hub also send me a weekly email summary per bed?",
+                  summary="Asked in passing while the battery work ran; the reply never came back to it.",
+                  loose=["Weekly email with moisture and battery per bed"], next="Draft the summary as a cron job",
+                  keywords=["sensor-hub", "email", "summary", "weekly"]),
          ]),
     dict(host="laptop", project="inkwell", days=60, hour=11, title="Blog engine import",
          turns=[
@@ -259,6 +266,12 @@ def write_sessions(root, now=None):
                                     "input": {"command": f'git add -A && git commit -m "{arg}"'}})
                 elif kind == "gap":
                     t += dt.timedelta(hours=int(arg))
+                elif kind == "queue":
+                    t += dt.timedelta(minutes=2)
+                    records.append({"type": "attachment", "uuid": str(uuid.uuid4()), "timestamp": _ts(t), **base,
+                                    "attachment": {"type": "queued_command", "prompt": [{"type": "text", "text": arg}],
+                                                   "commandMode": "prompt", "origin": {"kind": "human"},
+                                                   "timestamp": _ts(t)}})
                 elif kind == "sub":
                     _, _, path = arg.partition(":")
                     sub_records.append({"type": "assistant", "timestamp": _ts(t), "sessionId": sid, "isSidechain": True,

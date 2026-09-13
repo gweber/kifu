@@ -19,10 +19,11 @@ CREATE TABLE IF NOT EXISTS sessions(
 CREATE INDEX IF NOT EXISTS sessions_started ON sessions(started);
 
 -- A prompt the user typed and what the assistant did until the next one.
--- ended: the last activity before a long silence; dup_of: the session a forked copy came from.
+-- ended: the last activity before a long silence; dup_of: the session a forked copy came from;
+-- queued: typed while the assistant was still working on the previous prompt.
 CREATE TABLE IF NOT EXISTS turns(
   session_id TEXT, idx INT, ts TEXT, ended TEXT, uuid TEXT, prompt TEXT, reply TEXT,
-  n_tools INT, files TEXT, dup_of TEXT,
+  n_tools INT, files TEXT, dup_of TEXT, queued INT,
   PRIMARY KEY(session_id, idx));
 CREATE INDEX IF NOT EXISTS turns_uuid ON turns(uuid);
 
@@ -70,8 +71,14 @@ CREATE TABLE IF NOT EXISTS checks(
 CREATE TABLE IF NOT EXISTS judged(input_hash TEXT PRIMARY KEY, settled TEXT, note TEXT);
 
 -- sessions and vec let a mark find its idea again when a rebuild moves the anchor (see marks.py).
+-- state: done | dismissed | NULL (a row that only renames). title: the user's own name for the idea.
 CREATE TABLE IF NOT EXISTS marks(
-  anchor TEXT PRIMARY KEY, state TEXT, note TEXT, updated TEXT, sessions TEXT, vec BLOB);
+  anchor TEXT PRIMARY KEY, state TEXT, note TEXT, updated TEXT, sessions TEXT, vec BLOB, title TEXT);
+
+-- The user's corrections to how threads are grouped into ideas. keys: thread keys (session:turn:title hash).
+-- merge: these threads are one idea. detach: this thread is an idea of its own.
+CREATE TABLE IF NOT EXISTS corrections(
+  id INTEGER PRIMARY KEY, kind TEXT, keys TEXT, created TEXT);
 """
 
 # Superseded objects from before 1.0.

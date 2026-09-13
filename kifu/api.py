@@ -261,6 +261,58 @@ def mark(anchor: str, state: Literal["done", "dismissed", "open"] = Body(..., em
     return _line(line_["anchor"])
 
 
+@app.put("/api/lines/{anchor}/title", summary="Rename an idea; an empty title restores the analyzed one")
+def rename(anchor: str, title: str = Body(..., embed=True)):
+    line_ = _line(anchor)
+    marks.set_title(con(), line_["anchor"], title)
+    return _line(line_["anchor"])
+
+
+# ---- corrections -------------------------------------------------------------------------------------------
+
+def _correct(kind, keys):
+    c = con()
+    cur = c.execute("INSERT INTO corrections(kind, keys, created) VALUES (?,?,?)",
+                    (kind, json.dumps(sorted(set(keys))), dt.datetime.now(dt.UTC).isoformat(timespec="seconds")))
+    c.commit()
+    job = _start("link")
+    return {"correction": cur.lastrowid, "job": {k: job[k] for k in ("id", "kind", "status")} if job else None,
+            "note": None if job else "another job is running; the correction applies on the next link"}
+
+
+@app.post("/api/lines/{anchor}/merge", summary="These two ideas are one: keep their threads together")
+def merge(anchor: str, into: str = Body(..., embed=True)):
+    a, b = _line(anchor), _line(into)
+    if a["anchor"] == b["anchor"]:
+        raise HTTPException(400, "an idea cannot be merged with itself")
+    return _correct("merge", [t["key"] for t in a["threads"] + b["threads"]])
+
+
+@app.post("/api/lines/{anchor}/detach", summary="This thread is not part of the idea: make it an idea of its own")
+def detach(anchor: str, thread: str = Body(..., embed=True, description="the thread's key")):
+    line_ = _line(anchor)
+    if thread not in {t["key"] for t in line_["threads"]}:
+        raise HTTPException(404, "that thread is not part of this idea")
+    if len(line_["threads"]) < 2:
+        raise HTTPException(400, "an idea with one thread has nothing to detach from")
+    return _correct("detach", [thread])
+
+
+@app.get("/api/corrections")
+def corrections():
+    return [dict(r, keys=json.loads(r["keys"])) for r in con().execute("SELECT * FROM corrections ORDER BY id")]
+
+
+@app.delete("/api/corrections/{correction_id}", summary="Take a correction back")
+def delete_correction(correction_id: int):
+    c = con()
+    if not c.execute("DELETE FROM corrections WHERE id=?", (correction_id,)).rowcount:
+        raise HTTPException(404, "no such correction")
+    c.commit()
+    job = _start("link")
+    return {"deleted": correction_id, "job": {k: job[k] for k in ("id", "kind", "status")} if job else None}
+
+
 # ---- jobs --------------------------------------------------------------------------------------------------
 
 _jobs = collections.OrderedDict()

@@ -171,11 +171,17 @@ def test_habits_summary(store):
 # ---- api ---------------------------------------------------------------------------------------------------
 
 @pytest.fixture
-def client(store):
+def client(store, monkeypatch):
     from fastapi.testclient import TestClient
 
     from kifu import api
-    return TestClient(api.app, base_url="http://127.0.0.1:8765")
+    started = []
+    # Endpoints that start jobs record the request instead of spawning `kifu …` processes.
+    monkeypatch.setattr(api, "_start", lambda kind: started.append(kind) or {"id": f"job{len(started)}", "kind": kind,
+                                                                              "status": "running", "started": "now"})
+    c = TestClient(api.app, base_url="http://127.0.0.1:8765")
+    c.started = started
+    return c
 
 
 def test_api_reads(client):
@@ -184,7 +190,7 @@ def test_api_reads(client):
     overview = client.get("/api/overview").json()
     assert overview["config"]["user"] == "Ada" and overview["top"][0]["title"] == "Weekend low-tide push alerts"
     compact = client.get("/api/lines", params={"open": "true", "compact": "true"}).json()
-    assert compact["total"] == 5 and set(compact["items"][0]) >= {"anchor", "loose_ends", "resume", "quiet_days"}
+    assert compact["total"] == 6 and set(compact["items"][0]) >= {"anchor", "loose_ends", "resume", "quiet_days"}
     assert client.get("/api/lines", params={"q": "offline"}).json()["total"] == 1
     assert "quiet for" in client.get("/api/digest", params={"quiet_days": 0}).json()["text"]
     sid = compact["items"][0]["resume"].split()[-1]
@@ -198,7 +204,7 @@ def test_api_mark_roundtrip(client):
     anchor = client.get("/api/lines", params={"open": "true"}).json()["items"][0]["anchor"]
     assert client.put(f"/api/lines/{anchor}/mark", json={"state": "done"}).json()["mark"]["state"] == "done"
     assert client.get("/api/stats").json()["marked"] == 1
-    assert client.get("/api/lines", params={"open": "true"}).json()["total"] == 4
+    assert client.get("/api/lines", params={"open": "true"}).json()["total"] == 5
     assert client.put(f"/api/lines/{anchor}/mark", json={"state": "open"}).json()["mark"] is None
     assert client.put(f"/api/lines/{anchor}/mark", json={"state": "bogus"}).status_code == 422
 
@@ -410,3 +416,102 @@ def test_an_old_database_can_be_scrubbed(store):
     assert redact.scrub_database(con, log=lambda m: None) == 1
     assert one(con, "SELECT COUNT(*) FROM threads WHERE quote LIKE '%ghp_%'") == 0
     assert redact.scrub_database(con, log=lambda m: None) == 0, "scrubbing twice changes nothing"
+
+
+# ---- messages typed while the assistant worked ------------------------------------------------------------
+
+def test_a_message_sent_mid_task_becomes_a_turn_and_is_marked_for_the_analyzer(store):
+    _, con = store
+    row = con.execute("SELECT * FROM turns WHERE prompt LIKE '%weekly email summary%'").fetchone()
+    assert row and row["queued"] == 1
+    move = one(con, "SELECT prompts FROM moves WHERE prompts LIKE '%weekly email summary%'")
+    assert move.startswith("[sent while the assistant was working]")
+    idea = con.execute("SELECT status, score FROM lines WHERE title='Weekly email summary per garden bed'").fetchone()
+    assert idea["status"] == "proposed" and idea["score"] > 0
+
+
+def test_a_queued_message_that_is_later_recorded_again_counts_once(tmp_path, store):
+    import json as _json
+    folder = tmp_path / "projects" / "-home-ada-code-x"
+    folder.mkdir(parents=True)
+    base = {"sessionId": "q1", "cwd": "/home/ada/code/x", "isSidechain": False}
+    records = [
+        {"type": "user", "uuid": "u1", "timestamp": "2026-03-01T10:00:00.000Z", "message": {"content": "build the thing"},
+         "origin": {"kind": "human"}, **base},
+        {"type": "attachment", "uuid": "a1", "timestamp": "2026-03-01T10:02:00.000Z", **base,
+         "attachment": {"type": "queued_command", "prompt": [{"type": "text", "text": "also think about caching"}],
+                        "commandMode": "prompt", "origin": {"kind": "human"}}},
+        {"type": "assistant", "uuid": "r1", "timestamp": "2026-03-01T10:05:00.000Z", "message": {"content": [{"type": "text", "text": "done"}]}, **base},
+        {"type": "user", "uuid": "u2", "timestamp": "2026-03-01T10:05:10.000Z", "message": {"content": "also think about caching"},
+         "origin": {"kind": "human"}, **base},
+    ]
+    (folder / "q1.jsonl").write_text("\n".join(_json.dumps(r) for r in records) + "\n")
+    sp = extract.parse_session(str(folder / "q1.jsonl"))
+    assert [(t["prompt"], t["queued"]) for t in sp.turns] == [("build the thing", False), ("also think about caching", True)]
+
+
+# ---- corrections, renames, calibration ----------------------------------------------------------------------
+
+def test_merge_detach_and_undo_through_the_api(client, store):
+    _, con = store
+    a = one(con, "SELECT anchor FROM lines WHERE title='Opening book from own games'")
+    b = one(con, "SELECT anchor FROM lines WHERE title='Run MQTT broker and hub on studio'")
+    res = client.post(f"/api/lines/{a}/merge", json={"into": b}).json()
+    assert res["correction"] and res["job"] and client.started == ["link"]
+    link.build_lines(con, backend="fixture", workers=1, log=lambda m: None)    # what the job runs
+    merged = con.execute("SELECT * FROM lines WHERE json_array_length(thread_ids)=2 AND areas LIKE '%chess-lab%'").fetchone()
+    assert merged and "sensor-hub" in merged["areas"], "a merge is kept even though the model would split it"
+
+    data = report.collect(con, habits_data={})
+    line = next(l for l in data["lines"] if l["anchor"] == merged["anchor"])
+    from kifu import api
+    api._cache.clear()
+    thread = line["threads"][0]["key"]
+    assert client.post(f"/api/lines/{merged['anchor']}/detach", json={"thread": thread}).status_code == 200
+    link.build_lines(con, backend="fixture", workers=1, log=lambda m: None)
+    assert one(con, "SELECT COUNT(*) FROM lines WHERE json_array_length(thread_ids)=2 AND areas LIKE '%chess-lab%'") == 0
+
+    ids = [c["id"] for c in client.get("/api/corrections").json()]
+    assert len(ids) == 2
+    for cid in ids:
+        assert client.delete(f"/api/corrections/{cid}").status_code == 200
+    assert client.get("/api/corrections").json() == []
+    assert client.post(f"/api/lines/{a}/merge", json={"into": a}).status_code == 400
+
+
+def test_a_detach_request_for_a_single_thread_idea_is_refused(client, store):
+    _, con = store
+    anchor = one(con, "SELECT anchor FROM lines WHERE title='Opening book from own games'")
+    data = client.get(f"/api/lines/{anchor}").json()
+    assert client.post(f"/api/lines/{anchor}/detach", json={"thread": data["threads"][0]["key"]}).status_code == 400
+    assert client.post(f"/api/lines/{anchor}/detach", json={"thread": "nope"}).status_code == 404
+
+
+def test_a_rename_survives_a_rebuild_and_is_not_a_mark(client, store):
+    _, con = store
+    anchor = one(con, "SELECT anchor FROM lines WHERE title='Offline mode for tidepool'")
+    renamed = client.put(f"/api/lines/{anchor}/title", json={"title": "Tidepool on the beach"}).json()
+    assert renamed["title"] == "Tidepool on the beach" and renamed["analyzed_title"] == "Offline mode for tidepool"
+    assert renamed["mark"] is None and client.get("/api/stats").json()["marked"] == 0
+    link.build_lines(con, backend="fixture", workers=1, log=lambda m: None)
+    data = report.collect(con, habits_data={})
+    assert any(l["title"] == "Tidepool on the beach" for l in data["lines"])
+    back = client.put(f"/api/lines/{anchor}/title", json={"title": ""}).json()
+    assert back["title"] == "Offline mode for tidepool" and one(con, "SELECT COUNT(*) FROM marks") == 0
+
+
+def test_scores_learn_from_marks_only_once_there_are_enough(store):
+    _, con = store
+    lines = report.collect(con, habits_data={})["lines"]
+    idea = next(l for l in lines if l["title"] == "Weekend low-tide push alerts")
+    fake = []
+    for i in range(12):   # the user keeps dismissing tidepool ideas
+        fake.append({"mark": {"state": "dismissed" if i < 10 else "done"}, "kinds": ["idea"], "areas": ["tidepool"],
+                     "score": 0, "title": f"x{i}"})
+    few = [dict(idea)] + fake[:5]
+    report.calibrate(few)
+    assert "calibration" not in few[0], "five marks are not enough to judge"
+    many = [dict(idea)] + fake
+    report.calibrate(many)
+    assert many[0]["calibration"]["factor"] < 1 and "tidepool" in many[0]["calibration"]["reason"]
+    assert many[0]["score"] < idea["score"]

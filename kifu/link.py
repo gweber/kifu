@@ -67,12 +67,43 @@ def embed_threads(con):
     return len(rows)
 
 
+def thread_key(t):
+    """session:turn:title hash, the same shape as an anchor: stable until the session is analyzed again."""
+    return f"{t['session_id']}:{t['first_turn']}:{hashlib.sha1(t['title'].encode()).hexdigest()[:6]}"
+
+
+def apply_corrections(con, rows, labels):
+    """The user's merges and detaches, in the order they were made, on top of the clustering.
+
+    Returns the corrected labels and the labels of groups a merge put together (their consolidation has no veto).
+    """
+    labels = [int(x) for x in labels]
+    index = {}
+    for i, r in enumerate(rows):
+        index.setdefault(thread_key(r), []).append(i)
+    forced = set()
+    fresh = max(labels, default=0) + 1
+    for c in con.execute("SELECT kind, keys FROM corrections ORDER BY id"):
+        members = [i for k in json.loads(c["keys"]) for i in index.get(k, [])]
+        if c["kind"] == "detach":
+            for i in members:
+                labels[i], fresh = fresh, fresh + 1
+                forced.discard(labels[i])
+        elif c["kind"] == "merge" and len(members) > 1:
+            target = labels[members[0]]
+            for old in {labels[i] for i in members}:
+                labels = [target if x == old else x for x in labels]
+            forced.add(target)
+    return labels, forced
+
+
 def group(con):
     from sklearn.cluster import AgglomerativeClustering
 
-    rows = con.execute("SELECT id, session_id, embedding FROM threads WHERE embedding IS NOT NULL ORDER BY id").fetchall()
+    rows = con.execute("SELECT id, session_id, first_turn, title, embedding FROM threads "
+                       "WHERE embedding IS NOT NULL ORDER BY id").fetchall()
     if len(rows) < 2:
-        return {r["id"]: 0 for r in rows}
+        return {r["id"]: 0 for r in rows}, set()
     mat = np.vstack([np.frombuffer(r["embedding"], dtype=np.float32) for r in rows])
     mat /= np.linalg.norm(mat, axis=1, keepdims=True)
     dist = np.clip(1.0 - mat @ mat.T, 0.0, 2.0)
@@ -91,7 +122,8 @@ def group(con):
                     dist[i, j] = max(0.0, dist[i, j] - FORK_BONUS)
     labels = AgglomerativeClustering(n_clusters=None, metric="precomputed", linkage="average",
                                      distance_threshold=DISTANCE).fit_predict(dist)
-    return {r["id"]: int(lab) for r, lab in zip(rows, labels)}
+    labels, forced = apply_corrections(con, rows, labels)
+    return {r["id"]: lab for r, lab in zip(rows, labels)}, forced
 
 
 def score_line(status, kinds, n_loose, n_sessions, last_ts, now_ts):
@@ -115,7 +147,7 @@ def build_lines(con, backend=None, workers=None, log=print):
     backend = "openai" if backend == "local" else (backend or cfg.backend)
     workers = workers or cfg.workers
     log(f"embedded {embed_threads(con)} new threads")
-    labels = group(con)
+    labels, forced = group(con)
     threads = {t["id"]: t for t in con.execute(
         "SELECT t.*, s.project, s.cwd FROM threads t JOIN sessions s ON s.id=t.session_id")}
     groups = {}
@@ -124,9 +156,9 @@ def build_lines(con, backend=None, workers=None, log=print):
     old = {r["input_hash"]: r for r in con.execute("SELECT * FROM lines")}
     now_ts = con.execute("SELECT MAX(ended) FROM sessions").fetchone()[0]
     jobs, rows = [], []
-    for members in groups.values():
+    for label, members in groups.items():
         members.sort(key=lambda t: t["first_ts"])
-        row = {"thread_ids": [t["id"] for t in members],
+        row = {"thread_ids": [t["id"] for t in members], "forced": label in forced,
                "areas": sorted({area_of(t["project"]) for t in members}),
                "project": members[-1]["project"],
                "first_ts": members[0]["first_ts"], "last_ts": max(t["last_ts"] for t in members),
@@ -143,7 +175,7 @@ def build_lines(con, backend=None, workers=None, log=print):
                 o = old[h]
                 row.update(title=o["title"], summary=o["summary"], status=o["status"],
                            loose_ends=json.loads(o["loose_ends"] or "[]"), next_step=o["next_step"], verdict=o["verdict"])
-            elif h + ":split" in old:
+            elif h + ":split" in old and not row["forced"]:
                 row["split"] = True
             else:
                 jobs.append((row, members))
@@ -162,7 +194,7 @@ def build_lines(con, backend=None, workers=None, log=print):
                          f"\n  {t['title']} ({t['kind']}, {t['status']})\n  {t['summary']}\n  In their words: “{t['quote']}”"
                          + (f"\n  loose ends:\n{loose}" if loose else ""))
         out = analyze.BACKENDS[backend](system, "\n\n".join(parts), schema=LINE_SCHEMA)
-        if not out.get("same_idea", True):
+        if not out.get("same_idea", True) and not row["forced"]:     # the user said these belong together
             row["split"] = True
             return
         row.update(title=out["title"], summary=out["summary"], status=out["status"], loose_ends=out["loose_ends"],

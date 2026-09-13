@@ -33,6 +33,8 @@ BUILTIN_COMMAND = re.compile(
     r"todos|output-style|upgrade|workflows|artifacts|color|release-notes|terminal-setup|privacy-settings|feedback|"
     r"bug)\b")
 
+QUEUED_MARK = "[sent while the assistant was working]"
+
 _confirm_re = None
 
 
@@ -76,13 +78,14 @@ def build_moves(con):
             if BUILTIN_COMMAND.match(t["prompt"]):
                 continue
             kinds = evidence.get((sid, t["idx"]), [])
-            if cur is None or not is_continuation(t["prompt"]):
+            prompt = f"{QUEUED_MARK} {t['prompt']}" if t["queued"] else t["prompt"]
+            if cur is None or t["queued"] or not is_continuation(t["prompt"]):
                 if cur:
                     _insert_move(con, cur)
                     n += 1
                 cur = {"session_id": sid, "first_idx": t["idx"], "prompts": [], "reply": "", "writes": 0,
                        "commits": 0, "ts_first": t["ts"]}
-            cur["prompts"].append(t["prompt"])
+            cur["prompts"].append(prompt)
             cur["last_idx"] = t["idx"]
             cur["ts_last"] = t["ts"]
             if t["reply"]:

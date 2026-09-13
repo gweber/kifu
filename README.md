@@ -44,6 +44,27 @@ already gone.
 
 ![Habits](docs/habits.png)
 
+**Inside Claude Code** (`kifu install claude`)
+
+- **When a session starts,** the project's open ideas appear — to you, and to Claude as context:
+  ```
+  kifu: 2 open ideas in tidepool
+    • Weekend low-tide push alerts (proposed, since 2026-08-03) — next: Daily job that checks the next 7 days
+    • Offline mode for tidepool (started, since 2026-07-07) — next: Banner when cached predictions are older than a week
+  ```
+- **An MCP server** with `kifu_ideas`, `kifu_idea`, `kifu_brief` and `kifu_mark`, so Claude can answer "what did I
+  leave open here?" mid-session.
+- **`kifu resume <idea>`** starts a *new* session from a brief of the idea — what it was in your own words, the
+  loose ends still open, what git shows happened since, the files it touched — on the machine it ran on.
+  A fresh brief instead of a weeks-old context.
+- **When a session ends,** it is queued and analyzed two quiet minutes later. No manual runs.
+- **`/kifu`** as a slash command when installed as a plugin: `/plugin marketplace add gweber/kifu`, then
+  `/plugin install kifu@kifu`.
+
+**Corrections that stick:** rename an idea, merge two that are the same, or pull a thread out of an idea it
+does not belong to. Your corrections survive every rebuild, and once you have marked a few dozen ideas done
+or dismissed, scores lean towards what you actually pick up.
+
 **A JSON API** with OpenAPI docs at `/docs`, including a compact form for agents and a digest of ideas
 that went quiet.
 
@@ -78,8 +99,9 @@ You need Python 3.11+, and two model endpoints:
 ```bash
 pip install "kifu[web] @ git+https://github.com/gweber/kifu"
 mkdir -p ~/.config/kifu   # copy examples/config.toml from this repository there, and edit it
-kifu run        # pull, scan, embed, analyze, link — later runs only read what is new
+kifu run        # pull, scan, embed, analyze, link, verify — later runs only read what is new
 kifu serve
+kifu install claude    # optional: hooks and MCP server in Claude Code
 ```
 
 `kifu config` prints the settings in effect. Every setting is described in
@@ -100,7 +122,7 @@ MCP servers, settings or skills: a session of a few dozen prompts is around ten 
 | Stage | | |
 |---|---|---|
 | **pull** | rsync each machine's `~/.claude/projects` into an archive | never deletes |
-| **scan** | turns: each prompt you typed, the end of the reply, when the work ended; evidence: files written, commits, pushes, PRs, deploys, question dialogs; forks and resumes | deterministic, seconds |
+| **scan** | turns: each prompt you typed — including messages sent while the assistant was still working, where the "by the way…" ideas hide — the end of the reply, when the work ended; evidence: files written, commits, pushes, PRs, deploys, question dialogs; forks and resumes; secrets redacted | deterministic, seconds |
 | **embed** | fold "go on" and "yes do both" into the prompt they confirm; embed each move | local or any endpoint |
 | **analyze** | a model reads each session's moves and lists its threads: title, kind, status, your quote, loose ends, next step | cached per session |
 | **link** | group the same idea across sessions by embedding; a model consolidates each group — or splits it if the ideas are only related — and drops loose ends a later session settled; open ideas get an aji score | cached per group |

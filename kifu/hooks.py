@@ -32,9 +32,10 @@ def open_ideas_for(con, cwd, top=TOP):
     if project in ("~", "?") or project.startswith("/"):
         return project, []
     area = area_of(project)
-    rows = con.execute("""SELECT l.anchor, l.title, l.status, l.loose_ends, l.last_ts, l.score, c.settled
-                          FROM lines l LEFT JOIN checks c ON c.anchor=l.anchor
-                          WHERE l.score > 0 AND l.anchor NOT IN (SELECT anchor FROM marks)
+    rows = con.execute("""SELECT l.anchor, COALESCE(m.title, l.title) AS title, l.status, l.loose_ends, l.last_ts,
+                          l.score, c.settled
+                          FROM lines l LEFT JOIN checks c ON c.anchor=l.anchor LEFT JOIN marks m ON m.anchor=l.anchor
+                          WHERE l.score > 0 AND m.state IS NULL
                           AND EXISTS (SELECT 1 FROM json_each(l.areas) WHERE json_each.value=?)
                           ORDER BY l.score DESC""", (area,)).fetchall()
     ideas = []

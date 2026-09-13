@@ -59,13 +59,13 @@ def call(fn, **args):
 
 def test_tools(server):
     ideas = call(tools.ideas, limit=3)
-    assert ideas["ok"] and ideas["total_open"] == 5 and ideas["ideas"][0]["title"] == "Weekend low-tide push alerts"
+    assert ideas["ok"] and ideas["total_open"] == 6 and ideas["ideas"][0]["title"] == "Weekend low-tide push alerts"
     assert len(json.dumps(ideas)) < 4000, "tool results must stay small"
     offline = call(tools.ideas, query="offline")["ideas"][0]
     trail = call(tools.idea, anchor=offline["anchor"])
     assert len(trail["trail"]) == 2 and all(t["resume"] for t in trail["trail"])
     assert call(tools.mark, anchor=offline["anchor"], state="done")["mark"] == "done"
-    assert call(tools.ideas)["total_open"] == 4
+    assert call(tools.ideas)["total_open"] == 5
     assert call(tools.mark, anchor=offline["anchor"], state="open")["mark"] == "open"
     assert call(tools.idea, anchor="nope")["ok"] is False
 
@@ -78,7 +78,7 @@ def test_tools_explain_when_kifu_is_down(monkeypatch):
 
 def test_slash_command(server):
     text = plugin._slash("")
-    assert text.startswith("kifu · 5 open idea(s)") and "Weekend low-tide push alerts" in text
+    assert text.startswith("kifu · 6 open idea(s)") and "Weekend low-tide push alerts" in text
     assert "matching 'inkwell'" in plugin._slash("inkwell")
     assert "quiet for" in plugin._slash("digest") or "No open idea" in plugin._slash("digest")
 

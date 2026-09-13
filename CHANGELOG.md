@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Claude Code integration** (`kifu install claude`, or the plugin in `claude-code-plugin/`): a SessionStart
+  hook shows the project's open ideas; a SessionEnd hook queues the session for analysis two quiet minutes
+  later; `kifu mcp` serves `kifu_ideas`, `kifu_idea`, `kifu_brief` and `kifu_mark`.
+- **`kifu brief` / `kifu resume`:** pick an idea up in a new session that starts from a compact brief.
+- **Messages sent while the assistant was working** are now read. They were skipped before — on the machines
+  kifu was built on, 956 of them in 176 sessions, many of them new ideas.
+- **Secrets are redacted** when scanning; `kifu redact` cleans an older database.
+- **Corrections:** rename, merge and detach ideas in the web app; corrections survive rebuilds. Scores
+  calibrate to your done/dismissed marks once there are enough of them.
+
 ## 0.2.0 — 2026-09-13
 
 - **`kifu verify`** (also part of `kifu run`): checks open ideas against git on the machine each session ran

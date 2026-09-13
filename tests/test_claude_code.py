@@ -63,7 +63,7 @@ def test_mcp_handshake_and_tools(store, monkeypatch):
     here = json.loads(tool("kifu_ideas")["content"][0]["text"])
     assert here["project"] == "inkwell" and [i["title"] for i in here["ideas"]] == ["Import markdown vault into inkwell"]
     everywhere = json.loads(tool("kifu_ideas", scope="all")["content"][0]["text"])
-    assert everywhere["total_open"] == 5
+    assert everywhere["total_open"] == 6
     b = json.loads(tool("kifu_brief", idea="vault importer")["content"][0]["text"])
     assert "Resolver for [[page]] wiki links" in b["brief"]
     missing = tool("kifu_idea", anchor="nope")
@@ -80,7 +80,7 @@ def test_mcp_over_stdio(store):
                        capture_output=True, text=True, timeout=60, env={**os.environ, "KIFU_CONFIG": cfg.path})
     responses = [json.loads(x) for x in r.stdout.splitlines()]
     assert [x["id"] for x in responses] == [1, 2], r.stderr
-    assert json.loads(responses[1]["result"]["content"][0]["text"])["total_open"] == 5
+    assert json.loads(responses[1]["result"]["content"][0]["text"])["total_open"] == 6
 
 
 def test_a_brief_holds_what_a_new_session_needs(store):

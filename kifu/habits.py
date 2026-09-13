@@ -54,7 +54,7 @@ def last_sentence(reply):
 
 def compute(con):
     sessions = {s["id"]: s for s in con.execute("SELECT * FROM sessions WHERE automated=0")}
-    turns = [t for t in con.execute("""SELECT t.session_id, t.idx, t.ts, t.ended, t.prompt, t.reply FROM turns t
+    turns = [t for t in con.execute("""SELECT t.session_id, t.idx, t.ts, t.ended, t.prompt, t.reply, t.queued FROM turns t
                                        WHERE t.dup_of IS NULL ORDER BY t.ts""")
              if t["session_id"] in sessions and not BUILTIN_COMMAND.match(t["prompt"])]
     threads = collections.defaultdict(list)
@@ -111,6 +111,8 @@ def summary(h, recent=4):
         "recommendation_taken_pct": pct(rec_taken, rec_total), "recommendation_taken": rec_taken,
         "recommendation_offered": rec_total,
         "dialogs_dismissed_pct": pct(dialogs.get("dismissed", 0), sum(dialogs.values())),
+        "queued_pct": {"recent": pct(sum(w["queued"] for w in weeks[-recent:]), sum(w["prompts"] for w in weeks[-recent:])),
+                       "first": pct(sum(w["queued"] for w in weeks[:recent]), sum(w["prompts"] for w in weeks[:recent]))},
     }
 
 
@@ -132,11 +134,13 @@ def rhythm(turns):
 
 
 def weeks(con, turns, sessions):
-    w = collections.defaultdict(lambda: {"prompts": 0, "modes": collections.Counter(), "sessions": set(), "days": set()})
+    w = collections.defaultdict(lambda: {"prompts": 0, "queued": 0, "modes": collections.Counter(), "sessions": set(),
+                                         "days": set()})
     for t in turns:
         lt = local(t["ts"])
         row = w[week_of(lt)]
         row["prompts"] += 1
+        row["queued"] += bool(t["queued"])
         row["modes"][mode_of(t["prompt"])] += 1
         row["sessions"].add(t["session_id"])
         row["days"].add(lt.date())
@@ -146,7 +150,7 @@ def weeks(con, turns, sessions):
     result = []
     for key in sorted(w):
         row = w[key]
-        result.append({"week": key, "prompts": row["prompts"], "modes": dict(row["modes"]),
+        result.append({"week": key, "prompts": row["prompts"], "queued": row["queued"], "modes": dict(row["modes"]),
                        "sessions": len(row["sessions"]), "active_days": len(row["days"]),
                        "new_ideas": sum(ideas[key].values()), "idea_status": dict(ideas[key])})
     return result

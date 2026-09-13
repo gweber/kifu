@@ -142,7 +142,7 @@ def verify(con_factory, backend=None, workers=None, log=print):
     backend = "openai" if backend == "local" else (backend or cfg.backend)
     con = con_factory()
     lines = con.execute("""SELECT * FROM lines WHERE score > 0
-                           AND anchor NOT IN (SELECT anchor FROM marks)""").fetchall()
+                           AND anchor NOT IN (SELECT anchor FROM marks WHERE state IS NOT NULL)""").fetchall()
     host_map = hosts()
     log(f"checking {len(lines)} open ideas against git")
     now = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")

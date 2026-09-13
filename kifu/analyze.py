@@ -57,7 +57,9 @@ SYSTEM = """You read the digest of one work session between {user} and an AI cod
 and forgotten. Your job is to recover them.
 
 The digest is a list of moves. Each move is {user}'s prompt(s) and the end of the assistant's reply,
-with counts of files written and commits made during that move.
+with counts of files written and commits made during that move. A prompt marked
+"[sent while the assistant was working]" was typed mid-task: it often raises a separate idea that the
+assistant only half noticed — give it its own thread when it does, and a loose end when nothing came of it.
 
 List the threads of the session: each distinct idea, feature, project, investigation or decision.
 - Merge moves that serve the same goal into one thread. Do not make a thread per move.

@@ -148,6 +148,33 @@ class SessionParse:
         self.evidence.append((idx, ts, kind, value, source))
 
 
+def queued_prompt(r):
+    """The text of a message the user sent while the assistant was working, or None."""
+    a = r.get("attachment")
+    if not isinstance(a, dict) or a.get("type") != "queued_command" or (a.get("origin") or {}).get("kind") != "human":
+        return None
+    if a.get("commandMode") not in (None, "prompt"):
+        return None
+    text = a.get("prompt")
+    text = _text_of(text) if isinstance(text, list) else str(text or "")
+    return clean_prompt(text) or None
+
+
+def new_turn(sp, ts, uuid, prompt, queued=False):
+    turn = {"idx": len(sp.turns), "ts": ts, "ended": ts, "detached": False, "uuid": uuid, "prompt": prompt,
+            "texts": [], "n_tools": 0, "files": [], "queued": queued}
+    sp.turns.append(turn)
+    return turn
+
+
+def _already_queued(sp, prompt, ts):
+    """A queued message that Claude Code later also records as a regular prompt is one turn, not two."""
+    for turn in reversed(sp.turns[-5:]):
+        if turn.get("queued") and turn["prompt"] == prompt and ts and _minutes(turn["ts"], ts) < 60:
+            return True
+    return False
+
+
 def _scan_records(path):
     with open(path, errors="replace") as fh:
         for line in fh:
@@ -200,6 +227,11 @@ def parse_session(path):
             sp.add_evidence("artifact", r["frameUrl"], ts)
         elif t == "system" and r.get("subtype") == "compact_boundary":
             sp.meta["compactions"] += 1
+        elif t == "attachment" and not r.get("isSidechain"):
+            queued = queued_prompt(r)
+            if queued:
+                # Typed while the assistant was still working: often a different idea, and the easiest to lose.
+                cur = new_turn(sp, ts, r.get("uuid"), queued, queued=True)
         if t not in ("user", "assistant"):
             continue
         if r.get("cwd"):
@@ -216,10 +248,8 @@ def parse_session(path):
                         sp.add_evidence("ask", json.dumps(ask_outcome(asks.pop(b["tool_use_id"]), b)), ts)
             if is_human_prompt(r):
                 prompt = clean_prompt(_text_of(r["message"]["content"]))
-                if prompt:
-                    cur = {"idx": len(sp.turns), "ts": ts, "ended": ts, "detached": False, "uuid": r.get("uuid"), "prompt": prompt,
-                           "texts": [], "n_tools": 0, "files": []}
-                    sp.turns.append(cur)
+                if prompt and not _already_queued(sp, prompt, ts):
+                    cur = new_turn(sp, ts, r.get("uuid"), prompt)
             continue
         if cur is not None and ts and not cur["detached"]:
             # A turn ends at the last activity before a long silence; later wakeups run on their own.
@@ -361,10 +391,11 @@ def store(con, sp, n_subagents, size, mtime, host=None):
                  redact(sp.ai_title), sp.agent_name, len(sp.turns), len(sp.turns), sp.meta["tool_calls"], n_subagents,
                  sp.meta["compactions"], size, automated, digest_hash(sp.turns), host))
     # Secrets are removed here, before anything is stored: see redact.py.
-    con.executemany("INSERT INTO turns(session_id, idx, ts, ended, uuid, prompt, reply, n_tools, files) VALUES (?,?,?,?,?,?,?,?,?)",
+    con.executemany("""INSERT INTO turns(session_id, idx, ts, ended, uuid, prompt, reply, n_tools, files, queued)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
                     [(sp.id, t["idx"], t["ts"], t["ended"], t["uuid"], redact(t["prompt"]),
-                      redact(_clip_reply(t["texts"])) if t["texts"] else "", t["n_tools"], json.dumps(t["files"]))
-                     for t in sp.turns])
+                      redact(_clip_reply(t["texts"])) if t["texts"] else "", t["n_tools"], json.dumps(t["files"]),
+                      int(t.get("queued", False))) for t in sp.turns])
     con.executemany("INSERT INTO evidence(session_id, turn_idx, ts, kind, value, source) VALUES (?,?,?,?,?,?)",
                     [(sp.id, idx, ts, kind, redact(value), source) for idx, ts, kind, value, source in sp.evidence])
     for remote in sp.teleported:

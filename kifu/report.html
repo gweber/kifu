@@ -63,6 +63,8 @@ ul.loose li { margin: 2px 0; }
 .next b { color: var(--accent); }
 .activity { font-size: 13px; margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: var(--chip); }
 .activity b { font-weight: 600; }
+.renamed { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.trail button.mk { margin-left: 6px; font-size: 11.5px; padding: 0 6px; }
 ul.loose li.settled { text-decoration: line-through; color: var(--muted); }
 .chip.done-ish { color: var(--shipped); }
 details { margin-top: 8px; }
@@ -244,20 +246,23 @@ function card(l, open = false) {
       <span class="stone s-${t.status}" title="${t.status}"></span> ${esc(t.title)}
       <span class="chip">${esc(s.project || "")}</span>
       <div class="quote">“${esc(t.quote)}”</div>
-      <div>${esc(s.title || "")} · <code class="cmd" title="click to copy">${esc(t.resume || resumeCmd(t.session))}</code></div></div></li>`;
+      <div>${esc(s.title || "")} · <code class="cmd" title="click to copy">${esc(t.resume || resumeCmd(t.session))}</code>
+      ${LIVE && l.threads.length > 1 ? `<button class="mk" data-detach="${esc(t.key)}" data-anchor="${esc(l.anchor)}" title="This thread is a different idea">Not the same idea</button>` : ""}</div></div></li>`;
   }).join("");
   const firstQuote = l.threads[0]?.quote;
   const markUI = !LIVE ? "" : l.mark
     ? `<span class="marked">${l.mark.state === "done" ? "✓ done" : "dismissed"}</span><button class="mk" data-mark="open" data-anchor="${esc(l.anchor)}">undo</button>`
     : `<button class="mk" data-mark="done" data-anchor="${esc(l.anchor)}" title="It is finished, stop listing it">Done</button><button class="mk" data-mark="dismissed" data-anchor="${esc(l.anchor)}" title="Not worth picking up">Dismiss</button>`;
+  const editUI = !LIVE ? "" : `<button class="mk" data-rename="${esc(l.anchor)}" title="Give it your own name">Rename</button><button class="mk" data-merge="${esc(l.anchor)}" title="This is the same idea as another one">Merge…</button>`;
   return `<article class="card${l.mark ? " is-marked" : ""}" data-line="${l.id}">
-    <h3><span class="stone s-${l.status}" title="${l.status}"></span>${esc(l.title)}<span class="marks">${markUI}</span></h3>
+    <h3><span class="stone s-${l.status}" title="${l.status}"></span>${esc(l.title)}<span class="marks">${editUI}${markUI}</span></h3>
+    ${l.analyzed_title ? `<div class="renamed">renamed · analyzed as “${esc(l.analyzed_title)}”</div>` : ""}
     <div class="meta">
       <span>${esc(l.status)}</span><span>${l.areas.map(esc).join(", ")}</span>
       <span>${fmt(l.first)}${l.first.slice(0, 10) !== l.last.slice(0, 10) ? " → " + fmt(l.last) : ""}</span>
       <span>${l.n_sessions} session${l.n_sessions > 1 ? "s" : ""}</span>
       <span>quiet ${quiet} day${quiet === 1 ? "" : "s"}</span>
-      ${l.score ? `<span class="score">aji ${l.score}</span>` : ""}
+      ${l.score ? `<span class="score"${l.calibration ? ` title="${esc(l.calibration.reason)}"` : ""}>aji ${l.score}${l.calibration ? ` (×${l.calibration.factor} from your marks)` : ""}</span>` : ""}
     </div>
     ${l.verdict ? `<div class="verdict">${esc(l.verdict)}</div>` : ""}
     <div class="summary">${esc(l.summary)}</div>
@@ -489,6 +494,7 @@ function renderHabits() {
     ${tile("“Go on” prompts", `${S.go_on_pct.recent}%`, `last 4 weeks · ${S.go_on_pct.first}% in the first 4`)}
     ${tile("Questions left behind", `${S.questions_left_pct}%`, `${S.questions_left} of ${qTotal} replies ending in a question`)}
     ${tile("Recommendation taken", `${S.recommendation_taken_pct}%`, `${S.recommendation_taken} of ${S.recommendation_offered} · ${S.dialogs_dismissed_pct}% of question dialogs dismissed`)}
+    ${S.queued_pct ? tile("Sent while Claude worked", `${S.queued_pct.recent}%`, `of prompts, last 4 weeks · ${S.queued_pct.first}% in the first 4`) : ""}
   </div>`;
   html += heatmap() + modeColumns();
   html += `<div class="grid2">`;
@@ -521,6 +527,15 @@ function renderHabits() {
   wireLines();
 }
 
+let followJob = () => {};
+
+async function send(method, url, body) {
+  const r = await fetch(url, {method, headers: {"content-type": "application/json"}, body: JSON.stringify(body)});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || `${r.status}`);
+  return data;
+}
+
 function initJobs() {
   $("#jobs").hidden = false;
   const status = $("#jobstatus");
@@ -536,6 +551,7 @@ function initJobs() {
     }
   };
   const follow = id => { if (!polling) polling = setInterval(() => poll(id), 2000); poll(id); };
+  followJob = follow;
   document.querySelectorAll("#jobs button").forEach(b => b.addEventListener("click", async () => {
     const r = await fetch("api/jobs", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({kind: b.dataset.job})});
     const j = await r.json();
@@ -568,6 +584,33 @@ function show(v) {
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => show(b.dataset.view)));
 ["#q", "#area", "#minor", "#marked"].forEach(s => $(s).addEventListener("input", render));
 document.addEventListener("click", async e => {
+  const edit = e.target.closest("button[data-rename], button[data-merge], button[data-detach]");
+  if (edit) {
+    const l = DATA.lines.find(x => x.anchor === edit.dataset.anchor || x.anchor === edit.dataset.rename || x.anchor === edit.dataset.merge);
+    try {
+      if (edit.dataset.rename) {
+        const title = prompt("Your name for this idea (empty restores the analyzed title):", l.title);
+        if (title === null) return;
+        const updated = await send("PUT", `api/lines/${encodeURIComponent(l.anchor)}/title`, {title});
+        Object.assign(l, {title: updated.title, analyzed_title: updated.analyzed_title});
+        render();
+      } else if (edit.dataset.merge) {
+        const words = prompt(`Merge “${l.title}” with which idea? Words from its title:`);
+        if (!words) return;
+        const found = await fetch(`api/lines?q=${encodeURIComponent(words)}&limit=5`).then(r => r.json());
+        const target = found.items.find(x => x.anchor !== l.anchor);
+        if (!target) { alert("No other idea matches."); return; }
+        if (!confirm(`Merge these into one idea?\n\n• ${l.title}\n• ${target.title}`)) return;
+        const res = await send("POST", `api/lines/${encodeURIComponent(l.anchor)}/merge`, {into: target.anchor});
+        if (res.job) followJob(res.job.id); else alert(res.note);
+      } else {
+        if (!confirm("Make this thread an idea of its own?")) return;
+        const res = await send("POST", `api/lines/${encodeURIComponent(edit.dataset.anchor)}/detach`, {thread: edit.dataset.detach});
+        if (res.job) followJob(res.job.id); else alert(res.note);
+      }
+    } catch (err) { alert("Could not save: " + err.message); }
+    return;
+  }
   const btn = e.target.closest("button.mk");
   if (btn) {
     btn.disabled = true;

@@ -6,6 +6,7 @@ import socket
 
 from . import config, habits, verify
 from .extract import area_of
+from .link import thread_key
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "report.html")
 
@@ -24,13 +25,16 @@ def collect(con, habits_data=None):
     by_line = {}
     for t in threads:
         by_line.setdefault(t["line_id"], []).append(t)
-    marks = {m["anchor"]: dict(m) for m in con.execute("SELECT anchor, state, note, updated FROM marks")}
+    marks = {m["anchor"]: dict(m) for m in con.execute("SELECT anchor, state, note, updated, title FROM marks")}
     checks = {c["anchor"]: c for c in con.execute("SELECT * FROM checks")}
     lines = []
     for l in con.execute("SELECT * FROM lines ORDER BY score DESC, last_ts DESC"):
         members = by_line.get(l["id"], [])
         lines.append({
-            "id": l["id"], "anchor": l["anchor"], "mark": marks.get(l["anchor"]), "title": l["title"],
+            "id": l["id"], "anchor": l["anchor"],
+            "mark": marks[l["anchor"]] if marks.get(l["anchor"], {}).get("state") else None,
+            "title": (marks.get(l["anchor"]) or {}).get("title") or l["title"],
+            "analyzed_title": l["title"] if (marks.get(l["anchor"]) or {}).get("title") else None,
             "check": verify.summarize(checks.get(l["anchor"]), json.loads(l["loose_ends"] or "[]")),
             "summary": l["summary"], "status": l["status"], "project": l["project"],
             "areas": json.loads(l["areas"] or "[]"), "first": l["first_ts"], "last": l["last_ts"],
@@ -39,11 +43,12 @@ def collect(con, habits_data=None):
             "kinds": sorted({t["kind"] for t in members}),
             "threads": [{"session": t["session_id"], "title": t["title"], "status": t["status"], "kind": t["kind"],
                          "first": t["first_ts"], "last": t["last_ts"], "quote": t["quote"],
-                         "loose": json.loads(t["loose_ends"] or "[]"),
+                         "loose": json.loads(t["loose_ends"] or "[]"), "key": thread_key(t),
                          "project": by_id[t["session_id"]]["project"] if t["session_id"] in by_id else "",
                          "resume": resume_command(by_id[t["session_id"]]) if t["session_id"] in by_id else None}
                         for t in members],
         })
+    calibrate(lines)
     for line in lines:
         # Every loose end looks settled by later commits: probably done outside the sessions.
         if line["check"] and line["check"]["likely_done"] and line["score"] > 0:
@@ -63,6 +68,46 @@ def collect(con, habits_data=None):
     }
     return {"lines": lines, "sessions": sess, "stats": stats,
             "habits": habits_data if habits_data is not None else habits.compute(con)}
+
+
+CALIBRATE_AFTER = 10       # marks before the user's own verdicts start to shift scores
+PRIOR_DISMISSED = 0.25     # what a dismissal rate is assumed to be before there is evidence
+PRIOR_WEIGHT = 4
+
+
+def calibrate(lines):
+    """Learn from marks: ideas of a kind or project the user keeps dismissing score lower, ones they finish higher.
+
+    Each kind and each project gets a dismissal rate, smoothed toward a prior so two dismissals do not bury a
+    whole category. The factor stays within [0.5, 1.2], applies to open unmarked ideas, and says why.
+    """
+    marked = [l for l in lines if l["mark"]]
+    if len(marked) < CALIBRATE_AFTER:
+        return
+    stats = {}
+    for l in marked:
+        dismissed = l["mark"]["state"] == "dismissed"
+        for dim, value in (("kind", l["kinds"][0] if l["kinds"] else "?"), ("project", l["areas"][0] if l["areas"] else "?")):
+            n, d = stats.get((dim, value), (0, 0))
+            stats[(dim, value)] = (n + 1, d + dismissed)
+    for l in lines:
+        if l["mark"] or l["score"] <= 0:
+            continue
+        factor, reasons = 1.0, []
+        for dim, value in (("kind", l["kinds"][0] if l["kinds"] else "?"), ("project", l["areas"][0] if l["areas"] else "?")):
+            n, d = stats.get((dim, value), (0, 0))
+            if n < 3:
+                continue
+            rate = (d + PRIOR_DISMISSED * PRIOR_WEIGHT) / (n + PRIOR_WEIGHT)
+            f = 1 - (rate - PRIOR_DISMISSED) * 0.8
+            factor *= f
+            if abs(f - 1) >= 0.05:
+                what = f"{value} ideas" if dim == "project" else f"{value}s" if not value.endswith("s") else value
+                reasons.append(f"you dismissed {d} of {n} marked {what}")
+        factor = max(0.5, min(1.2, factor))
+        if abs(factor - 1) >= 0.05:
+            l["score"] = round(l["score"] * factor, 2)
+            l["calibration"] = {"factor": round(factor, 2), "reason": "; ".join(reasons)}
 
 
 def resume_command(session):

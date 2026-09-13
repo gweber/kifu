@@ -26,21 +26,35 @@ def _line_fingerprint(con, anchor):
     return sessions, (mean / np.linalg.norm(mean)).astype(np.float32)
 
 
-def set_mark(con, anchor, state, note=""):
-    if state == "open":
+def _upsert(con, anchor, **fields):
+    sessions, vec = _line_fingerprint(con, anchor)
+    row = con.execute("SELECT state, note, title FROM marks WHERE anchor=?", (anchor,)).fetchone()
+    merged = {"state": row["state"], "note": row["note"], "title": row["title"]} if row else {"state": None, "note": "", "title": None}
+    merged.update(fields)
+    if not merged["state"] and not merged["title"]:
         con.execute("DELETE FROM marks WHERE anchor=?", (anchor,))
     else:
-        sessions, vec = _line_fingerprint(con, anchor)
-        con.execute("INSERT OR REPLACE INTO marks(anchor, state, note, updated, sessions, vec) VALUES (?,?,?,?,?,?)",
-                    (anchor, state, note, dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
-                     json.dumps(sessions or []), vec.tobytes() if vec is not None else None))
+        con.execute("""INSERT OR REPLACE INTO marks(anchor, state, note, updated, sessions, vec, title)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (anchor, merged["state"], merged["note"] or "", dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+                     json.dumps(sessions or []), vec.tobytes() if vec is not None else None, merged["title"]))
     con.commit()
+
+
+def set_mark(con, anchor, state, note=""):
+    """done or dismissed; open clears the state and keeps a rename."""
+    _upsert(con, anchor, state=None if state == "open" else state, note=note)
+
+
+def set_title(con, anchor, title):
+    """The user's own name for an idea; empty restores the analyzed title."""
+    _upsert(con, anchor, title=(title or "").strip() or None)
 
 
 def reattach(con, log=print):
     """Move marks whose anchor disappeared in a rebuild; refresh the fingerprint of those still attached."""
     anchors = {r["anchor"] for r in con.execute("SELECT anchor FROM lines")}
-    marked = {r["anchor"] for r in con.execute("SELECT anchor FROM marks")}
+    marked = {r["anchor"] for r in con.execute("SELECT anchor FROM marks")}      # any row, renames included
     moved = orphaned = 0
     for m in con.execute("SELECT * FROM marks").fetchall():
         if m["anchor"] in anchors:
