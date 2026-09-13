@@ -515,3 +515,34 @@ def test_scores_learn_from_marks_only_once_there_are_enough(store):
     report.calibrate(many)
     assert many[0]["calibration"]["factor"] < 1 and "tidepool" in many[0]["calibration"]["reason"]
     assert many[0]["score"] < idea["score"]
+
+
+def test_a_refused_session_is_recorded_and_not_asked_again(store):
+    cfg, con = store
+    calls = []
+
+    def refusing(system, user, schema):
+        calls.append(1)
+        raise analyze.Refused("API Error: can't help with this")
+
+    sid = one(con, "SELECT id FROM sessions WHERE automated=0 LIMIT 1")
+    con.execute("UPDATE sessions SET digest_hash='changed' WHERE id=?", (sid,))
+    con.commit()
+    original = analyze.fixture
+    analyze.fixture = refusing
+    try:
+        assert analyze.analyze(lambda: db.connect(cfg.db_path), backend="fixture", workers=1, log=lambda m: None) == 0
+        analyze.analyze(lambda: db.connect(cfg.db_path), backend="fixture", workers=1, log=lambda m: None)
+    finally:
+        analyze.fixture = original
+    assert calls == [1]
+    assert one(con, "SELECT backend FROM analyzed WHERE session_id=?", sid) == "fixture:refused"
+
+
+def test_verify_explains_a_session_without_working_directory(store):
+    cfg, con = store
+    line = con.execute("SELECT * FROM lines WHERE title='Offline mode for tidepool'").fetchone()
+    con.execute("UPDATE sessions SET cwd=NULL WHERE id IN (SELECT session_id FROM threads WHERE line_id=?)", (line["id"],))
+    con.commit()
+    result = verify.check_line(con, line, verify.hosts())
+    assert result["error"] == "the session recorded no working directory"

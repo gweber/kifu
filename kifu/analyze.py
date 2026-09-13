@@ -144,12 +144,23 @@ def call_claude(system, user, schema=THREAD_SCHEMA):
             error = f"{out.get('subtype')}: {str(out.get('result'))[:300]}"
         except json.JSONDecodeError:
             error = (r.stderr or r.stdout)[-300:]
+        if REFUSAL.search(error):
+            raise Refused(error)            # asking again gets the same answer and costs again
         if attempt == 2:
             raise RuntimeError(error)
         time.sleep(20 * (attempt + 1))      # usually rate limiting when several run in parallel
     out = json.loads(r.stdout)
     result = out.get("structured_output") or out.get("result")
+    if isinstance(result, str) and REFUSAL.search(result):
+        raise Refused(result[:200])
     return result if isinstance(result, dict) else json.loads(result)
+
+
+class Refused(Exception):
+    """The model declined the content. Recorded as analyzed, never retried."""
+
+
+REFUSAL = re.compile(r"can't help with this|cannot help with this|unable to help with this|content policy", re.I)
 
 
 # `kifu demo` and the tests install a function (system, user, schema) -> dict here.
@@ -195,7 +206,12 @@ def analyze_session(con_factory, session_id, backend):
                        "reuse the exact title):\n" + "\n".join(f"- {t}" for t in earlier) + "\n\n")
         user = (f"Session: {s['title'] or s['ai_title'] or ''} | project {s['project']} | "
                 f"{s['started'][:10]} .. {s['ended'][:10]}\n\n{context}" + "\n\n".join(part))
-        out = call(system, user)
+        try:
+            out = call(system, user)
+        except Refused:
+            con.execute("INSERT OR REPLACE INTO analyzed VALUES (?,?,?,?)", (session_id, key, f"{backend}:refused", 0))
+            con.commit()
+            return session_id, 0, "refused by the model (recorded, not retried)"
         for t in out.get("threads", []):
             t["_offset"] = offset
             results.append(t)

@@ -81,6 +81,9 @@ def check_line(con, line, host_map):
     result = {"files": 0, "missing": 0, "commits": [], "repo": None, "host": None, "error": None}
     seen = set()
     for (host_name, cwd), files in groups.items():
+        if not cwd:
+            result["error"] = result["error"] or "the session recorded no working directory"
+            continue
         host = host_map.get(host_name)
         if host is None:
             result["error"] = f"no source configured for host {host_name}"
