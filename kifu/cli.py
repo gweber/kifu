@@ -206,6 +206,12 @@ def cmd_reclassify(args, con):
     reclassify.reclassify(con, tools=args.tool or None, backend=args.backend)
 
 
+def cmd_rules(args, con):
+    from . import rules
+    result = rules.suggest(con, backend=args.backend, refresh=args.refresh)
+    print(json.dumps(result, indent=1, ensure_ascii=False) if args.json else rules.format_text(result))
+
+
 def cmd_blame(args, con):
     from . import blame
     try:
@@ -294,6 +300,10 @@ def main(argv=None):
             s.add_argument("--bare", action="store_true", help="without the instruction for a new session")
         else:
             s.add_argument("--print", action="store_true", help="print the brief instead of starting claude")
+    s = sub.add_parser("rules", help="corrections you keep repeating, as rules for CLAUDE.md (one model call)")
+    s.add_argument("--backend", choices=sorted(analyze.BACKENDS))
+    s.add_argument("--refresh", action="store_true", help="ask again even when nothing changed")
+    s.add_argument("--json", action="store_true")
     s = sub.add_parser("blame", help="git blame for intent: the session and prompt behind lines of code")
     s.add_argument("target", help="file, file:line or file:start-end")
     s.add_argument("--json", action="store_true")
@@ -319,7 +329,7 @@ def main(argv=None):
      "verify": cmd_verify, "run": cmd_run, "ideas": cmd_ideas, "sessions": cmd_sessions, "show": cmd_show, "threads": cmd_threads,
      "serve": cmd_serve, "report": cmd_report, "demo": cmd_demo, "config": cmd_config,
      "redact": cmd_redact, "mcp": cmd_mcp, "brief": cmd_brief, "resume": cmd_resume, "drain": cmd_drain,
-     "install": cmd_install, "reclassify": cmd_reclassify, "memory-check": cmd_memory_check, "blame": cmd_blame}[args.cmd](args, con)
+     "install": cmd_install, "reclassify": cmd_reclassify, "memory-check": cmd_memory_check, "blame": cmd_blame, "rules": cmd_rules}[args.cmd](args, con)
 
 
 if __name__ == "__main__":

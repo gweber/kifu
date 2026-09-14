@@ -89,8 +89,8 @@ def _post(path, body, timeout):
 
 def prompt_submit(payload):
     prompt = (payload.get("prompt") or "").strip()
-    if len(prompt) < 25 or prompt.startswith("/"):
-        return None                     # the service would skip it too; do not spend the round trip
+    if len(prompt) < 25 or prompt.startswith(("/", "<", "[SYSTEM", "[IMPORTANT")):
+        return None                     # commands and injected notifications; the service would skip them too
     try:
         out = _post("/api/dejavu", {"prompt": prompt, "session_id": payload.get("session_id")}, DEJAVU_TIMEOUT)
     except (OSError, ValueError):

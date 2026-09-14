@@ -764,3 +764,35 @@ def test_effort_per_idea_and_where_the_time_went(store):
     assert sum(b["ideas"] for b in eff["by_outcome"]) == len(data["lines"])
     assert all(x["outcome"] in ("dropped or dismissed", "parked or gone quiet") for x in eff["unfinished"])
     assert report.compact(longest, data)["effort"]["minutes"] == longest["effort"]["minutes"]
+
+
+# ---- rules -------------------------------------------------------------------------------------------------
+
+def test_rules_need_real_repetition_across_sessions(store, tmp_path, monkeypatch):
+    from kifu import rules
+    cfg, con = store
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    (tmp_path / "claude").mkdir()
+    (tmp_path / "claude" / "CLAUDE.md").write_text("# Rules\n\nWrite commit messages in English.\n")
+    sessions = [r[0] for r in con.execute("SELECT id FROM sessions WHERE automated=0 ORDER BY started LIMIT 3")]
+    said = [(sessions[0], "don't add compatibility shims, remove the legacy bridge"),
+            (sessions[1], "again: no compatibility shims and no legacy bridge please"),
+            (sessions[2], "never keep compatibility shims around, delete the legacy bridge"),
+            (sessions[0], "stop pausing for confirmation"), (sessions[0], "stop pausing for confirmation now"),
+            (sessions[0], "i said stop pausing for confirmation")]
+    for n, (sid, text) in enumerate(said):
+        con.execute("INSERT INTO turns(session_id, idx, ts, prompt, reply, n_tools, files) VALUES (?,?,?,?,?,0,'[]')",
+                    (sid, 900 + n, f"2026-02-2{n}T10:00:00Z", text, ""))
+    con.commit()
+    assert {c["text"] for c in rules.candidates(con)} >= {t for _, t in said}
+    calls = []
+    real = analyze.BACKENDS["fixture"]
+    monkeypatch.setitem(analyze.BACKENDS, "fixture", lambda s, u, schema: calls.append(s) or real(s, u, schema))
+    result = rules.suggest(con, backend="fixture", root=str(tmp_path / "claude"), log=lambda m: None)
+    assert [r["times"] for r in result["rules"]] == [3], "one session repeating itself is not a rule yet"
+    rule = result["rules"][0]
+    assert rule["sessions"] == 3 and rule["target"] == str(tmp_path / "claude" / "CLAUDE.md")
+    assert "Write commit messages in English" in calls[0], "the model sees the rules that exist"
+    again = rules.suggest(con, backend="fixture", root=str(tmp_path / "claude"), log=lambda m: None)
+    assert again["cached"] and len(calls) == 1, "unchanged input costs no second call"
+    assert "3 times in 3 sessions" in rules.format_text(result)

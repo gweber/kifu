@@ -13,6 +13,7 @@ classified as personal are never offered.
 """
 import collections
 import json
+import re
 import threading
 
 import numpy as np
@@ -52,9 +53,14 @@ def index(con):
         return mat, rows
 
 
+SYSTEM_TEXT = re.compile(r"^(<[a-z-]+>|\[SYSTEM|\[IMPORTANT|Caveat:|This session is being continued)", re.I)
+
+
 def worth_checking(prompt):
+    """A prompt the user typed with a topic: not a command, a "go on", or a notification the harness injects."""
     p = (prompt or "").strip()
-    return len(p) >= MIN_CHARS and not p.startswith("/") and not BUILTIN_COMMAND.match(p) and not is_continuation(p)
+    return (len(p) >= MIN_CHARS and not p.startswith("/") and not SYSTEM_TEXT.match(p) and not BUILTIN_COMMAND.match(p)
+            and not is_continuation(p))
 
 
 def related(con, prompt, session_id=None, top=None, threshold=None):

@@ -135,6 +135,8 @@ def test_dejavu_offers_earlier_ideas_to_claude_once_per_session(store):
         i["title"] != "Import markdown vault into inkwell" for i in dejavu.check(con, prompt, t["session_id"])["ideas"]), \
         "the session's own ideas are not déjà vu"
     assert dejavu.check(con, "go on", "other") is None and dejavu.check(con, "/compact keep the plan", "other") is None
+    assert dejavu.check(con, "<task-notification> background command finished with exit code 0", "other") is None
+    assert hooks.prompt_submit({"prompt": "[SYSTEM NOTIFICATION - NOT USER INPUT] a background task completed"}) is None
     cfg.dejavu_prompts = 1
     dejavu._seen.clear()
     dejavu.check(con, "something entirely different about a kitchen renovation budget", "s3")

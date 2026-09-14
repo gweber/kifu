@@ -325,6 +325,8 @@ def fixture_backend(system, user, schema):
         return _consolidate(user)
     if "settled" in schema.get("properties", {}):
         return _judge(user)
+    if "rules" in schema.get("properties", {}):
+        return _rules(user)
     if "personal" in schema.get("properties", {}):
         entries = re.findall(r"^(\d+)\. (.*)$", user, re.M)
         return {"personal": [int(n) for n, text in entries
@@ -344,6 +346,24 @@ def fixture_backend(system, user, schema):
          "status": t["status"],
          "first_move": move_of(t["at"]), "last_move": max(move_of(t["at"]), move_of(t["to"])), "quote": t["quote"],
          "loose_ends": t["loose"], "next_step": t["next"], "keywords": t["keywords"]} for t in spec["threads"]]}
+
+
+def _rules(user):
+    """Messages sharing two or more longer words are the same correction."""
+    entries = [(int(n), set(w for w in re.findall(r"[a-z]{5,}", text.lower())))
+               for n, text in re.findall(r"^(\d+)\. \[[^\]]*\] (.*)$", user, re.M)]
+    groups = []
+    for n, words in entries:
+        for g in groups:
+            if len(words & g["words"]) >= 2:
+                g["prompts"].append(n)
+                g["words"] |= words
+                break
+        else:
+            groups.append({"prompts": [n], "words": set(words)})
+    return {"rules": [{"rule": "Do what these messages keep asking: " + ", ".join(sorted(g["words"])[:4]) + ".",
+                       "prompts": g["prompts"], "scope": "global", "covered_by": None,
+                       "why": f"Asked {len(g['prompts'])} times."} for g in groups if len(g["prompts"]) >= 3]}
 
 
 def _judge(user):

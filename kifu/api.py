@@ -266,6 +266,19 @@ def dejavu(prompt: str = Body(...), session_id: str | None = Body(None)):
     return dv.check(con(), prompt, session_id) or {"ideas": [], "context": None}
 
 
+@app.get("/api/rules", summary="Corrections you keep repeating, as rules: the last answer, without a model call")
+def get_rules():
+    from . import rules
+    c = con()
+    c.execute(rules.SCHEMA_SQL)
+    row = c.execute("SELECT result, created FROM rule_runs ORDER BY created DESC LIMIT 1").fetchone()
+    if not row:
+        return {"rules": [], "created": None, "note": "run `kifu rules` once"}
+    cands = rules.candidates(c)
+    return {"rules": rules._checked(json.loads(row["result"]).get("rules", []), cands, rules.rule_files()),
+            "created": row["created"]}
+
+
 @app.get("/api/memory-check", summary="Memory and CLAUDE.md files that name paths, files or projects which are gone")
 def memory_check():
     from . import memcheck
