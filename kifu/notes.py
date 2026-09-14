@@ -15,7 +15,6 @@ sessions continued the idea, the promise was most likely dealt with there.
 """
 import concurrent.futures as cf
 import hashlib
-import json
 import re
 
 from . import analyze, config

@@ -260,7 +260,7 @@ def get_blame(file: str, start: int | None = Query(None, ge=1), end: int | None 
     try:
         return blame.blame(con(), target)
     except blame.BlameError as exc:
-        raise HTTPException(404, str(exc))
+        raise HTTPException(404, str(exc)) from exc
 
 
 @app.post("/api/dejavu", summary="Earlier ideas a session's prompt resembles, as context for Claude (the prompt hook)")

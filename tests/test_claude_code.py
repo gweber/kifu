@@ -154,6 +154,7 @@ def test_prompt_hook_passes_the_services_context_and_stays_quiet_without_it(stor
 
 def test_dejavu_endpoint(store):
     from fastapi.testclient import TestClient
+
     from kifu import api, dejavu, link
     _, con = store
     dejavu._seen.clear()
