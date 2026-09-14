@@ -19,5 +19,5 @@ tags: [claude-code, ideas, productivity, sessions]
 settings:
   url: {type: string, default: "http://127.0.0.1:8765", description: "Where kifu serve listens"}
   digest_deliver: {type: string, default: "local", description: "Cron delivery target for the digest, e.g. telegram:<chat_id>"}
-  digest_schedule: {type: string, default: "0 18 * * 0", description: "Cron schedule for the digest"}
+  digest_schedule: {type: string, default: "0 18 * * 0", description: "Cron schedule for the digest, or auto: the hour you most often start coding sessions"}
   digest_quiet_days: {type: integer, default: 21, description: "An open idea goes into the digest after this many quiet days"}

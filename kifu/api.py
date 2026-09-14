@@ -291,6 +291,23 @@ def promises(q: str | None = None, all: bool = False, limit: int = Query(50, le=
     return notes.search(con(), "promise", q, open_only=not all, limit=limit)
 
 
+@app.get("/api/habits/slot", summary="The hour of the week you most often start real work, and its next time")
+def habits_slot():
+    return habits.best_slot(con()) or {"weekday": None, "hour": None, "next": None,
+                                       "reason": "not enough recent sessions to tell"}
+
+
+@app.get("/api/lines/{anchor}/brief", summary="A brief for picking the idea up again in a new session")
+def line_brief(anchor: str):
+    from . import brief
+    c = con()
+    data = brief.collect(c)
+    found = next((l for l in data["lines"] if l["anchor"] == anchor), None)
+    if not found:
+        raise HTTPException(404, "no such idea")
+    return {"anchor": anchor, "title": found["title"], "brief": brief.build(c, found, data, with_instruction=False)}
+
+
 @app.get("/api/memory-check", summary="Memory and CLAUDE.md files that name paths, files or projects which are gone")
 def memory_check():
     from . import memcheck

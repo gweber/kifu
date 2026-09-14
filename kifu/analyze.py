@@ -85,7 +85,9 @@ Return JSON only."""
 def system_prompt(template=SYSTEM):
     cfg = config.get()
     note = f", {cfg.writing_note}" if cfg.writing_note else ", sometimes in another language, sometimes dictated"
-    return template.format(user=cfg.user, user_cap=cfg.user[:1].upper() + cfg.user[1:], writing_note=note)
+    text = template.format(user=cfg.user, user_cap=cfg.user[:1].upper() + cfg.user[1:], writing_note=note)
+    # Summaries are read by the person they describe: a name does not tell anyone's pronouns.
+    return text + f"\n\nRefer to {cfg.user} by name or as they/them; never assume pronouns."
 
 
 def digest_moves(con, session_id):

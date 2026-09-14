@@ -58,6 +58,9 @@ def _cli_setup(parser) -> None:
     p.add_argument("--deliver", help="delivery target, e.g. telegram:<chat_id> (default: settings.digest_deliver)")
     p.add_argument("--schedule", help="cron schedule (default: settings.digest_schedule)")
     p.add_argument("--quiet-days", type=int, help="default: settings.digest_quiet_days")
+    p.add_argument("--buttons", action="store_true",
+                   help="Telegram only: send the digest from the gateway with Done/Dismiss/Brief buttons "
+                        "(replaces the text-only cron job)")
     p.add_argument("--dry-run", action="store_true")
     sub.add_parser("status", help="is the kifu service reachable, what does it hold")
     sub.add_parser("digest", help="print the digest now")
@@ -89,6 +92,15 @@ def _setup_digest(args, client) -> int:
     deliver = args.deliver or client.setting("digest_deliver", "local")
     schedule = args.schedule or client.setting("digest_schedule", "0 18 * * 0")
     quiet = args.quiet_days or int(client.setting("digest_quiet_days", 21))
+    if getattr(args, "buttons", False):
+        return _setup_buttons(args, client, deliver, schedule, quiet)
+    if schedule == "auto":
+        status, slot = client.get("/api/habits/slot")
+        if status != 200 or not slot.get("cron"):
+            print(f"kifu cannot pick a time yet ({slot.get('reason') if status == 200 else status}); pass --schedule")
+            return 1
+        print(f"auto: {slot['reason']} ({slot['timezone']})")
+        schedule = slot["cron"]
     home = Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
     script = home / "scripts" / "kifu_digest.py"
     print(f"script   {script}\njob      {DIGEST_JOB} · {schedule} · no_agent · deliver {deliver} · quiet {quiet}+ days")
@@ -117,6 +129,39 @@ def _setup_digest(args, client) -> int:
     return 0
 
 
+def _digest_module():
+    try:
+        from . import telegram_digest
+    except ImportError:
+        import telegram_digest  # type: ignore
+    return telegram_digest
+
+
+def _setup_buttons(args, client, deliver, schedule, quiet) -> int:
+    digest = _digest_module()
+    if not digest.chat_of(deliver):
+        print("--buttons needs a Telegram target: --deliver telegram:<chat_id>")
+        return 1
+    if schedule == "auto":
+        status, slot = client.get("/api/habits/slot")
+        print(f"auto: {slot.get('reason')}, next {slot.get('next')}" if status == 200 else f"auto: kifu answered {status}")
+    state = {**digest.load_state(), "mode": "buttons", "deliver": deliver, "schedule": schedule, "quiet_days": quiet}
+    print(f"state    {digest.state_path()}\ndigest   buttons · {schedule} · deliver {deliver} · quiet {quiet}+ days")
+    if args.dry_run:
+        return 0
+    digest.save_state(state)
+    try:
+        from cron import jobs as cron_jobs  # type: ignore
+        from tools.cronjob_tools import cronjob  # type: ignore
+        for job in [j for j in cron_jobs.load_jobs() if j.get("name") == DIGEST_JOB]:
+            json.loads(cronjob(action="remove", job_id=job["id"]))
+            print(f"removed the text-only cron job {job['id']}")
+    except Exception as exc:
+        print(f"could not check for the text-only cron job ({exc}); remove {DIGEST_JOB} if it exists")
+    print("restart the gateway to start the scheduler")
+    return 0
+
+
 def register(ctx) -> None:
     try:
         from . import tools
@@ -128,6 +173,10 @@ def register(ctx) -> None:
                              args_hint="[words | digest]")
     except Exception as exc:
         logger.debug("kifu: slash command not registered: %s", exc)
+    try:
+        ctx.register_telegram_handler(_digest_module().telegram_factory)
+    except Exception as exc:
+        logger.debug("kifu: Telegram buttons not registered: %s", exc)
     try:
         ctx.register_cli_command("kifu", help="kifu: digest setup and status", setup_fn=_cli_setup,
                                  handler_fn=_cli_handle,

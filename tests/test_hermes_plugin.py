@@ -111,3 +111,77 @@ def test_digest_script(server, tmp_path):
     script.write_text(plugin.DIGEST_SCRIPT.format(url=server, quiet=9999))
     out = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=30)
     assert out.stdout == "", "nothing quiet enough means nothing is sent"
+
+
+# ---- Telegram digest with buttons --------------------------------------------------------------------------
+
+import asyncio  # noqa: E402
+import datetime as dt  # noqa: E402
+
+telegram_digest = _load("kifu_telegram_digest", PLUGIN / "telegram_digest.py")
+
+
+def test_digest_schedule():
+    berlin = dt.timezone(dt.timedelta(hours=2))
+    now = dt.datetime(2026, 9, 14, 12, 0, tzinfo=berlin)                    # a Monday
+    assert telegram_digest.next_run("0 18 * * 0", now) == dt.datetime(2026, 9, 20, 18, 0, tzinfo=berlin)
+    assert telegram_digest.next_run("30 9 * * *", now) == dt.datetime(2026, 9, 15, 9, 30, tzinfo=berlin)
+    assert telegram_digest.next_run("0 18 * * 1,5", now) == dt.datetime(2026, 9, 14, 18, 0, tzinfo=berlin)
+    assert telegram_digest.next_run("*/5 * * * *", now) is None
+    slot = {"next": "2026-09-18T16:00:00+00:00"}
+    assert telegram_digest.next_run("auto", now, slot) == dt.datetime(2026, 9, 18, 16, 0, tzinfo=dt.UTC)
+    assert telegram_digest.next_run("auto", now, None) is None
+
+
+class FakeBot:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, **kw):
+        self.sent.append(kw)
+
+
+class _Button:
+    def __init__(self, text, callback_data):
+        self.text, self.callback_data = text, callback_data
+
+
+class _Markup:
+    def __init__(self, inline_keyboard):
+        self.inline_keyboard = inline_keyboard
+
+
+def test_digest_buttons_mark_ideas_and_answer_only_in_the_digest_chat(server, tmp_path, monkeypatch):
+    import types
+    # python-telegram-bot ships with Hermes, not with kifu: the two classes the digest uses are enough here.
+    monkeypatch.setitem(sys.modules, "telegram", types.SimpleNamespace(InlineKeyboardButton=_Button,
+                                                                       InlineKeyboardMarkup=_Markup))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    telegram_digest.save_state({"mode": "buttons", "deliver": "telegram:4242", "schedule": "auto", "quiet_days": 0})
+    bot = FakeBot()
+    sent = asyncio.run(telegram_digest.send_digest(bot, "4242", quiet_days=0, limit=3))
+    assert sent == 3 and bot.sent[0]["text"].startswith("kifu · ")
+    datas = [b.callback_data for m in bot.sent[1:] for row in m["reply_markup"].inline_keyboard for b in row]
+    assert len(datas) == 9 and all(len(d.encode()) <= 64 and d.startswith("kifu:") for d in datas)
+    state = telegram_digest.load_state()
+    done_data = datas[0]
+    anchor = state["tokens"][done_data.split(":")[-1]]
+
+    assert asyncio.run(telegram_digest.handle_button(done_data, "9999", state)) == (None, None), "other chats get nothing"
+    assert asyncio.run(telegram_digest.handle_button(done_data, "4242", state)) == ("✓ done", None)
+    import urllib.parse
+    import urllib.request
+    with urllib.request.urlopen(f"{server}/api/lines/{urllib.parse.quote(anchor, safe='')}") as r:
+        assert json.load(r)["mark"]["state"] == "done"
+    _, brief = asyncio.run(telegram_digest.handle_button(datas[2].replace(datas[2].split(":")[-1], datas[5].split(":")[-1]),
+                                                         "4242", state))
+    assert brief.startswith("# ") and len(brief) <= telegram_digest.TELEGRAM_LIMIT
+    assert asyncio.run(telegram_digest.handle_button("kifu:d:000000000000", "4242", state))[1].startswith("kifu: this button")
+
+
+def test_habits_slot_and_brief_endpoints(server):
+    import urllib.request
+    with urllib.request.urlopen(f"{server}/api/habits/slot") as r:
+        slot = json.load(r)
+    assert slot["weekday"] in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun") and slot["cron"].startswith("0 ")
+    assert dt.datetime.fromisoformat(slot["next"]) and "coding sessions" in slot["reason"]

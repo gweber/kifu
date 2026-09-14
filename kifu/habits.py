@@ -337,3 +337,56 @@ def idea_lifetimes(con):
         "by_status": [{"status": s, "n": len(v), "median_days": round(statistics.median(v), 1),
                        "same_day": sum(1 for d in v if d < 1)} for s, v in sorted(by_status.items(), key=lambda x: -len(x[1]))],
     }
+
+
+SLOT_WEEKS = 8
+SLOT_MIN_STARTS = 3
+
+
+def best_slot(con, now=None):
+    """The hour of the week you most often sit down to real work: when a digest of buried ideas can be acted on.
+
+    Counts the sessions of the last SLOT_WEEKS weeks in coding tools (chat assistants, weighted below 1 in
+    tool_weights, are left out) by the local weekday and hour of their first prompt that has a topic (a long, thought-out first prompt counts double), with half the weight of the neighbouring hours so one
+    busy evening does not decide. None with fewer than SLOT_MIN_STARTS such starts.
+    """
+    tz = config.get().tz
+    latest = con.execute("SELECT MAX(ended) FROM sessions WHERE automated=0").fetchone()[0]
+    if not latest:
+        return None
+    since = (dt.datetime.fromisoformat(latest.replace("Z", "+00:00")) - dt.timedelta(weeks=SLOT_WEEKS)).isoformat()
+    score = collections.Counter()
+    starts = collections.Counter()
+    seen = set()
+    chat = [tool for tool, w in config.get().tool_weights.items() if w < 1] or [""]
+    marks = ",".join("?" * len(chat))
+    for t in con.execute(f"""SELECT t.session_id, t.ts, t.prompt FROM turns t JOIN sessions s ON s.id=t.session_id
+                             WHERE s.automated=0 AND t.dup_of IS NULL AND t.ts >= ?
+                             AND COALESCE(s.tool, 'claude') NOT IN ({marks}) ORDER BY t.ts""", (since, *chat)):
+        if t["session_id"] in seen or BUILTIN_COMMAND.match(t["prompt"]) or is_continuation(t["prompt"]):
+            continue
+        seen.add(t["session_id"])
+        lt = local(t["ts"])
+        weight = 2 if mode_of(t["prompt"]) == "deep" else 1
+        score[(lt.weekday(), lt.hour)] += weight
+        starts[(lt.weekday(), lt.hour)] += 1
+    if sum(starts.values()) < SLOT_MIN_STARTS:
+        return None
+
+    def smoothed(slot):
+        wd, hour = slot
+        before = ((wd - (hour == 0)) % 7, (hour - 1) % 24)
+        after = ((wd + (hour == 23)) % 7, (hour + 1) % 24)
+        return score[slot] + 0.5 * (score[before] + score[after])
+
+    weekday, hour = max(((wd, h) for wd in range(7) for h in range(24)), key=lambda s: (smoothed(s), -s[1]))
+    now = (now or dt.datetime.now(dt.UTC)).astimezone(tz)
+    nxt = now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(days=(weekday - now.weekday()) % 7)
+    nxt = nxt.replace(hour=hour)
+    if nxt <= now:
+        nxt += dt.timedelta(days=7)
+    n = starts[(weekday, hour)]
+    return {"weekday": WEEKDAYS[weekday], "hour": hour, "cron": f"0 {hour} * * {(weekday + 1) % 7}",
+            "timezone": config.get().timezone or str(now.tzinfo), "next": nxt.astimezone(dt.UTC).isoformat(),
+            "reason": f"{WEEKDAYS[weekday]} around {hour:02d}:00 is when you most often start coding sessions: {n} of "
+                      f"{len(seen)} in the last {SLOT_WEEKS} weeks"}

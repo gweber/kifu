@@ -123,7 +123,8 @@ def suggest(con, backend=None, refresh=False, root=None, log=print):
     files = rule_files(root)
     existing = existing_rules(files)
     listing = "\n".join(f"{n}. [{c['ts'][:10]} · {c['tool']} · {c['project']}] {c['text']}" for n, c in enumerate(cands, 1))
-    system = SYSTEM.format(user=cfg.user, min_times=MIN_TIMES, existing=existing)
+    system = (SYSTEM.format(user=cfg.user, min_times=MIN_TIMES, existing=existing)
+              + f"\n\nRefer to {cfg.user} by name or as they/them; never assume pronouns.")
     key = hashlib.sha1(f"{system}\n{listing}\n{backend}".encode()).hexdigest()[:16]
     row = con.execute("SELECT result, created FROM rule_runs WHERE input_hash=?", (key,)).fetchone()
     if row and not refresh:

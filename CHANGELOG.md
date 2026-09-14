@@ -27,6 +27,12 @@
   `/api/promises`): choices with their reasons, and what the assistant said it would do later, read from the turns
   whose replies use that wording. Open promises (made in an idea's last session) and decisions show on the idea and
   in the brief. `kifu run` includes the pass; the drain after a session end reads only the last two days.
+- **Telegram digest with buttons** (`hermes kifu setup --buttons`): the Hermes plugin sends the digest from the gateway,
+  one message per idea with Done, Dismiss and Brief buttons, answered only in the digest's chat. Replaces the
+  text-only cron job. New endpoint `/api/lines/{anchor}/brief`.
+- **Digest timing from your habits** (`/api/habits/slot`, `digest_schedule = "auto"`): the hour of the week you most
+  often start coding sessions (chat tools left out), with the reason and the next time.
+- Model prompts say to refer to the user by name or as they/them.
 
 ## 0.3.2 — 2026-09-14
 
