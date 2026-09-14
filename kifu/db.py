@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS sessions(
   id TEXT PRIMARY KEY, path TEXT, project TEXT, cwd TEXT, branch TEXT, entrypoint TEXT,
   started TEXT, ended TEXT, title TEXT, ai_title TEXT, agent_name TEXT,
   n_prompts INT, n_turns INT, n_tool_calls INT, n_subagents INT, n_compactions INT,
-  bytes INT, automated INT, digest_hash TEXT, host TEXT, tool TEXT);
+  bytes INT, automated INT, digest_hash TEXT, host TEXT, tool TEXT,
+  tokens_in INT, tokens_out INT, tokens_cache INT, model TEXT);
 CREATE INDEX IF NOT EXISTS sessions_started ON sessions(started);
 
 -- A prompt the user typed and what the assistant did until the next one.
@@ -24,7 +25,7 @@ CREATE INDEX IF NOT EXISTS sessions_started ON sessions(started);
 -- queued: typed while the assistant was still working on the previous prompt.
 CREATE TABLE IF NOT EXISTS turns(
   session_id TEXT, idx INT, ts TEXT, ended TEXT, uuid TEXT, prompt TEXT, reply TEXT,
-  n_tools INT, files TEXT, dup_of TEXT, queued INT,
+  n_tools INT, files TEXT, dup_of TEXT, queued INT, tokens_in INT, tokens_out INT, tokens_cache INT,
   PRIMARY KEY(session_id, idx));
 CREATE INDEX IF NOT EXISTS turns_uuid ON turns(uuid);
 

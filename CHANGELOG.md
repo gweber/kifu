@@ -17,6 +17,9 @@
   when it is clearly what you are returning to. Similarity alone misjudges too often to show it to you directly
   (measured on 300 returns and 300 new ideas; see `dejavu.py`). Needs the running service; about 0.3 s per prompt.
   `kifu install claude` adds the hook.
+- **Effort:** tokens per turn and session from Claude Code transcripts (each API response counted once; subagents
+  count for their session; needs `kifu scan --force` once for older sessions). Each idea shows its active time and
+  tokens, and the Habits tab shows where the time went by outcome, and the costliest ideas never finished.
 
 ## 0.3.2 — 2026-09-14
 

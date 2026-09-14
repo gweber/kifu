@@ -252,6 +252,21 @@ function toolChip(s) {
   return s && s.tool && s.tool !== "claude" ? `<span class="chip">${esc(s.tool)}</span> ` : "";
 }
 
+function hours(min) {
+  return min >= 90 ? `${Math.round(min / 6) / 10} h` : `${Math.round(min)} min`;
+}
+
+function tokens(n) {
+  return n >= 1e6 ? `${Math.round(n / 1e5) / 10}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${n}`;
+}
+
+function effortChip(e) {
+  if (!e || !e.minutes) return "";
+  const t = e.tokens_out ? ` · ${tokens(e.tokens_out)} tokens written` : "";
+  const detail = e.tokens_out ? `${tokens(e.tokens_in)} input, ${tokens(e.tokens_cache)} cache reads, ${tokens(e.tokens_out)} output` : "no token counts for this tool";
+  return `<span title="Active time in the turns this idea covers; ${detail}">${hours(e.minutes)}${t}</span>`;
+}
+
 function card(l, open = false) {
   const quiet = days(l.last, st.now);
   const trail = l.threads.map(t => {
@@ -276,6 +291,7 @@ function card(l, open = false) {
       <span>${fmt(l.first)}${l.first.slice(0, 10) !== l.last.slice(0, 10) ? " → " + fmt(l.last) : ""}</span>
       <span>${l.n_sessions} session${l.n_sessions > 1 ? "s" : ""}</span>
       ${(l.journey || []).length ? `<span title="${esc(l.journey.map(j => `${j.tool}: ${fmt(j.from)}, ${j.sessions} session${j.sessions > 1 ? "s" : ""}`).join("\n"))}">${esc(l.journey.map(j => j.tool).join(" → "))}</span>` : ""}
+      ${effortChip(l.effort)}
       <span>quiet ${quiet} day${quiet === 1 ? "" : "s"}</span>
       ${l.score ? `<span class="score"${l.calibration ? ` title="${esc(l.calibration.reason)}"` : ""}>aji ${l.score}${l.calibration ? ` (×${l.calibration.factor} from your marks)` : ""}</span>` : ""}
     </div>
@@ -536,6 +552,17 @@ function renderHabits() {
     `<div class="tablewrap"><table class="data"><tr><th>day</th><th>switches</th><th>sessions</th><th>prompts</th></tr>${H.juggling.busiest.map(d =>
       `<tr><td>${fmt(d.day + "T12:00")}</td><td>${d.switches}</td><td>${d.sessions}</td><td>${d.prompts}</td></tr>`).join("")}</table></div>`);
   html += `</div>`;
+  const eff = st.effort;
+  if (eff && eff.by_outcome.some(b => b.minutes)) {
+    const total = eff.by_outcome.reduce((a, b) => a + b.minutes, 0);
+    html += `<div class="grid2">`;
+    html += chart("Where the time went", "Active time and tokens written, by what became of the ideas. Tokens are counted for Claude Code sessions.",
+      `<div class="tablewrap"><table class="data"><tr><th>ideas that are</th><th>ideas</th><th>time</th><th>share</th><th>tokens written</th></tr>${eff.by_outcome.map(b =>
+        `<tr><td>${esc(b.outcome)}</td><td>${b.ideas}</td><td>${hours(b.minutes)}</td><td>${pct(b.minutes, total)}%</td><td>${tokens(b.tokens_out)}</td></tr>`).join("")}</table></div>`);
+    html += chart("Most time, never finished", "Dropped, dismissed, parked, or quiet for a month: the ideas that took the longest.",
+      `<ul class="left">${eff.unfinished.slice(0, 8).map(x => `<li>${hours(x.minutes)}${x.tokens_out ? " · " + tokens(x.tokens_out) + " tokens" : ""} · “${esc(x.title)}”<div class="n">${esc(x.outcome)} · last ${fmt(x.last)}</div></li>`).join("")}</ul>`);
+    html += `</div>`;
+  }
   const moves = st.handoffs || [];
   if (moves.length) html += chart("Ideas that changed tools", "An idea that started in one tool and went on in another: a chat that became code, or work handed from one agent to the next.",
     `<div class="tablewrap"><table class="data"><tr><th>from → to</th><th>ideas</th><th>shipped or done</th><th>still open</th><th>latest</th></tr>${moves.map(p =>

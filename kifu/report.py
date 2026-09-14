@@ -24,6 +24,7 @@ def collect(con, habits_data=None):
     for s in sess:
         s["resume"] = resume_command(s)
     by_id = {s["id"]: s for s in sess}
+    turn_cost = _turn_costs(con)
     threads = con.execute("SELECT * FROM threads ORDER BY first_ts").fetchall()
     by_line = {}
     for t in threads:
@@ -46,6 +47,7 @@ def collect(con, habits_data=None):
             "kinds": sorted({t["kind"] for t in members}),
             "tools": sorted({by_id[t["session_id"]]["tool"] for t in members if t["session_id"] in by_id}),
             "journey": journey(members, by_id),
+            "effort": effort(members, turn_cost),
             "threads": [{"session": t["session_id"], "title": t["title"], "status": t["status"], "kind": t["kind"],
                          "first": t["first_ts"], "last": t["last_ts"], "quote": t["quote"],
                          "loose": json.loads(t["loose_ends"] or "[]"), "key": thread_key(t),
@@ -71,6 +73,7 @@ def collect(con, habits_data=None):
         "areas": sorted({a for l in lines if l["score"] > 0 for a in l["areas"] if is_project(a)}),
         "tools": sorted({t for l in lines if l["score"] > 0 for t in l["tools"]}),
         "handoffs": handoffs(lines),
+        "effort": effort_by_outcome(lines, con.execute("SELECT MAX(ended) FROM sessions").fetchone()[0]),
         "now": con.execute("SELECT MAX(ended) FROM sessions").fetchone()[0],
     }
     return {"lines": lines, "sessions": sess, "stats": stats,
@@ -94,6 +97,68 @@ def journey(members, by_id):
     if len(steps) < 2:
         return []
     return [{**step, "sessions": len(step["sessions"])} for step in steps]
+
+
+def _minutes(a, b):
+    try:
+        x = dt.datetime.fromisoformat(a.replace("Z", "+00:00"))
+        y = dt.datetime.fromisoformat(b.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return 0.0
+    return max(0.0, (y - x).total_seconds() / 60)
+
+
+def _turn_costs(con):
+    """{(session, turn): (active minutes, tokens in, out, cache reads)} for sessions a person typed in."""
+    return {(t["session_id"], t["idx"]): (_minutes(t["ts"], t["ended"]), t["tokens_in"] or 0, t["tokens_out"] or 0,
+                                          t["tokens_cache"] or 0)
+            for t in con.execute("""SELECT t.session_id, t.idx, t.ts, t.ended, t.tokens_in, t.tokens_out, t.tokens_cache
+                                    FROM turns t JOIN sessions s ON s.id=t.session_id
+                                    WHERE s.automated=0 AND t.dup_of IS NULL""")}
+
+
+def effort(members, turn_cost):
+    """Active minutes and tokens of the turns an idea's threads cover; a turn two threads share counts once.
+    Tokens are known for Claude Code sessions only."""
+    turns = {(t["session_id"], i) for t in members if t["first_turn"] is not None
+             for i in range(t["first_turn"], (t["last_turn"] if t["last_turn"] is not None else t["first_turn"]) + 1)}
+    costs = [turn_cost[k] for k in turns if k in turn_cost]
+    return {"minutes": round(sum(c[0] for c in costs)), "tokens_in": sum(c[1] for c in costs),
+            "tokens_out": sum(c[2] for c in costs), "tokens_cache": sum(c[3] for c in costs), "turns": len(costs)}
+
+
+QUIET_OPEN_DAYS = 30
+
+
+def outcome(line, now):
+    mark = (line["mark"] or {}).get("state")
+    if mark == "done" or line["status"] == "shipped":
+        return "shipped or done"
+    if mark == "dismissed" or line["status"] == "dropped":
+        return "dropped or dismissed"
+    if line["status"] == "answered":
+        return "answered"
+    if line["status"] == "parked" or (now and quiet_days(line, now) > QUIET_OPEN_DAYS):
+        return "parked or gone quiet"
+    return "still open"
+
+
+def effort_by_outcome(lines, now):
+    """Where the time went: hours and tokens by what became of the ideas, and the costliest ideas never finished."""
+    buckets = {}
+    for l in lines:
+        e = l["effort"]
+        b = buckets.setdefault(outcome(l, now), {"outcome": outcome(l, now), "ideas": 0, "minutes": 0, "tokens_out": 0,
+                                                 "tokens_in": 0, "tokens_cache": 0})
+        b["ideas"] += 1
+        for k in ("minutes", "tokens_out", "tokens_in", "tokens_cache"):
+            b[k] += e[k]
+    unfinished = [l for l in lines if outcome(l, now) in ("dropped or dismissed", "parked or gone quiet")]
+    sunk = sorted(unfinished, key=lambda l: -l["effort"]["minutes"])[:10]
+    order = ["shipped or done", "answered", "still open", "parked or gone quiet", "dropped or dismissed"]
+    return {"by_outcome": sorted(buckets.values(), key=lambda b: order.index(b["outcome"])),
+            "unfinished": [{"anchor": l["anchor"], "title": l["title"], "status": l["status"], "last": l["last"],
+                            "outcome": outcome(l, now), **l["effort"]} for l in sunk if l["effort"]["minutes"]]}
 
 
 def handoffs(lines):
@@ -180,6 +245,7 @@ def compact(line, data):
     return {"anchor": line["anchor"], "title": line["title"], "status": line["status"], "project": line["project"],
             "tools": line["tools"], "kinds": line["kinds"],
             "journey": " → ".join(step["tool"] for step in line["journey"]) or None,
+            "effort": {k: line["effort"][k] for k in ("minutes", "tokens_out", "tokens_in", "tokens_cache")},
             "areas": line["areas"], "first": line["first"][:10], "last": line["last"][:10],
             "quiet_days": quiet_days(line, data["stats"]["now"]), "sessions": line["n_sessions"],
             "score": line["score"], "open": line["score"] > 0 and not line["mark"],

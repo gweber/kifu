@@ -715,3 +715,52 @@ def test_blame_finds_the_prompt_behind_each_line(store, tmp_path):
     assert "prices need VAT" in blame.format_text(blame.blame(con, f"{path}:5"))
     with pytest.raises(blame.BlameError):
         blame.blame(con, str(repo / "nope.py"))
+
+
+# ---- effort ------------------------------------------------------------------------------------------------
+
+def test_tokens_count_each_api_response_once_and_subagents_count_for_the_session(tmp_path):
+    sid = "0b1a2c3d-0000-4000-8000-0000000000e1"
+    folder = tmp_path / "-code-lab"
+    folder.mkdir()
+    base = {"sessionId": sid, "cwd": "/home/ada/code/lab", "isSidechain": False}
+    usage = {"input_tokens": 10, "output_tokens": 500, "cache_creation_input_tokens": 90, "cache_read_input_tokens": 4000}
+    records = [
+        {**base, "type": "user", "uuid": "u1", "timestamp": "2026-02-10T09:00:00Z", "origin": {"kind": "human"},
+         "message": {"role": "user", "content": "draft the importer"}},
+        # One response, written as two records (text, then a tool call) that repeat the same usage.
+        {**base, "type": "assistant", "uuid": "a1", "timestamp": "2026-02-10T09:00:20Z",
+         "message": {"id": "msg_1", "model": "claude-sonnet-5", "usage": usage, "content": [{"type": "text", "text": "ok"}]}},
+        {**base, "type": "assistant", "uuid": "a2", "timestamp": "2026-02-10T09:00:21Z",
+         "message": {"id": "msg_1", "model": "claude-sonnet-5", "usage": usage,
+                     "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}}]}},
+        {**base, "type": "assistant", "uuid": "a3", "timestamp": "2026-02-10T09:01:00Z",
+         "message": {"id": "msg_2", "model": "claude-sonnet-5", "usage": {**usage, "output_tokens": 100},
+                     "content": [{"type": "text", "text": "done"}]}},
+    ]
+    (folder / f"{sid}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records))
+    sub = folder / sid / "subagents"
+    sub.mkdir(parents=True)
+    (sub / "agent-1.jsonl").write_text(json.dumps({"type": "assistant", "timestamp": "2026-02-10T09:00:40Z", "isSidechain": True,
+        "message": {"id": "msg_sub", "usage": {"input_tokens": 1, "output_tokens": 50}, "content": []}}) + "\n")
+    con = db.connect(str(tmp_path / "t.db"))
+    extract.scan(con, str(tmp_path), host="laptop", log=lambda m: None)
+    t = con.execute("SELECT tokens_in, tokens_out, tokens_cache FROM turns WHERE session_id=?", (sid,)).fetchone()
+    assert tuple(t) == (200, 600, 8000), "msg_1 once, msg_2 once"
+    s = con.execute("SELECT tokens_in, tokens_out, tokens_cache, model FROM sessions WHERE id=?", (sid,)).fetchone()
+    assert tuple(s) == (201, 650, 8000, "claude-sonnet-5")
+
+
+def test_effort_per_idea_and_where_the_time_went(store):
+    _, con = store
+    data = report.collect(con, habits_data={})
+    efforts = [l["effort"] for l in data["lines"]]
+    assert all(e["minutes"] >= 0 for e in efforts) and sum(e["tokens_out"] for e in efforts) > 0
+    longest = max(data["lines"], key=lambda l: l["effort"]["minutes"])
+    assert longest["effort"]["minutes"] > 30 and longest["effort"]["turns"] >= 1
+    eff = data["stats"]["effort"]
+    assert {b["outcome"] for b in eff["by_outcome"]} <= {"shipped or done", "answered", "still open",
+                                                         "parked or gone quiet", "dropped or dismissed"}
+    assert sum(b["ideas"] for b in eff["by_outcome"]) == len(data["lines"])
+    assert all(x["outcome"] in ("dropped or dismissed", "parked or gone quiet") for x in eff["unfinished"])
+    assert report.compact(longest, data)["effort"]["minutes"] == longest["effort"]["minutes"]

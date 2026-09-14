@@ -144,6 +144,32 @@ class SessionParse:
         self.pr_links = []
         self.tool = "claude"
         self.automated = None       # None: decided by store() from turns and markers
+        self.usage = {}             # API message id -> (turn idx or None, input, output, cache write, cache read)
+        self.models = collections.Counter()
+
+    def add_usage(self, message, turn_idx):
+        """Token use of one API response. A response is written as one record per content block, each repeating
+        the same usage: counted once, by message id."""
+        u = message.get("usage")
+        if not isinstance(u, dict) or not message.get("id"):
+            return
+        if message["id"] not in self.usage and message.get("model") and not message["model"].startswith("<"):
+            self.models[message["model"]] += 1
+        prev = self.usage.get(message["id"])
+        tokens = (turn_idx if prev is None else prev[0], int(u.get("input_tokens") or 0), int(u.get("output_tokens") or 0),
+                  int(u.get("cache_creation_input_tokens") or 0), int(u.get("cache_read_input_tokens") or 0))
+        if prev is None or tokens[2] >= prev[2]:
+            self.usage[message["id"]] = tokens
+
+    def token_totals(self):
+        """{turn idx or None: [input incl. cache writes, output, cache reads]}; None holds subagent use."""
+        out = collections.defaultdict(lambda: [0, 0, 0])
+        for idx, inp, outp, cw, cr in self.usage.values():
+            t = out[idx]
+            t[0] += inp + cw
+            t[1] += outp
+            t[2] += cr
+        return out
 
     def add_evidence(self, kind, value, ts, source="main"):
         idx = len(self.turns) - 1 if self.turns else None
@@ -264,6 +290,7 @@ def parse_session(path):
                     cur = new_turn(sp, ts, r.get("uuid"), prompt)
             continue
         touch(cur, ts)
+        sp.add_usage(r.get("message") or {}, cur["idx"] if cur is not None else None)
         for block in r.get("message", {}).get("content") or []:
             if not isinstance(block, dict):
                 continue
@@ -288,6 +315,7 @@ def parse_subagent(path, sp):
     for r in _scan_records(path):
         if r.get("type") != "assistant":
             continue
+        sp.add_usage(r.get("message") or {}, None)
         for block in r.get("message", {}).get("content") or []:
             if isinstance(block, dict) and block.get("type") == "tool_use":
                 before = len(sp.evidence)
@@ -451,18 +479,23 @@ def store(con, sp, n_subagents, size, mtime, host=None):
     con.execute("DELETE FROM turns WHERE session_id=?", (sp.id,))
     con.execute("DELETE FROM evidence WHERE session_id=?", (sp.id,))
     con.execute("DELETE FROM links WHERE src=? AND kind IN ('fork','teleport')", (sp.id,))
+    tokens = sp.token_totals() if sp.usage else {}
+    total = [sum(t[i] for t in tokens.values()) for i in range(3)] if tokens else [None, None, None]
     con.execute("""INSERT OR REPLACE INTO sessions(id, path, project, cwd, branch, entrypoint, started, ended, title,
                    ai_title, agent_name, n_prompts, n_turns, n_tool_calls, n_subagents, n_compactions, bytes, automated,
-                   digest_hash, host, tool) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   digest_hash, host, tool, tokens_in, tokens_out, tokens_cache, model)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (sp.id, sp.path, project_name(cwd), cwd, sp.branch, sp.entrypoint, sp.started, sp.ended, redact(sp.title),
                  redact(sp.ai_title), sp.agent_name, len(sp.turns), len(sp.turns), sp.meta["tool_calls"], n_subagents,
-                 sp.meta["compactions"], size, automated, digest_hash(sp.turns), host, sp.tool))
+                 sp.meta["compactions"], size, automated, digest_hash(sp.turns), host, sp.tool, *total,
+                 sp.models.most_common(1)[0][0] if sp.models else None))
     # Secrets are removed here, before anything is stored: see redact.py.
-    con.executemany("""INSERT INTO turns(session_id, idx, ts, ended, uuid, prompt, reply, n_tools, files, queued)
-                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
+    con.executemany("""INSERT INTO turns(session_id, idx, ts, ended, uuid, prompt, reply, n_tools, files, queued,
+                       tokens_in, tokens_out, tokens_cache) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     [(sp.id, t["idx"], t["ts"], t["ended"], t["uuid"], redact(t["prompt"]),
                       redact(_clip_reply(t["texts"])) if t["texts"] else "", t["n_tools"], json.dumps(t["files"]),
-                      int(t.get("queued", False))) for t in sp.turns])
+                      int(t.get("queued", False)), *(tokens[t["idx"]] if t["idx"] in tokens else (None, None, None)))
+                     for t in sp.turns])
     con.executemany("INSERT INTO evidence(session_id, turn_idx, ts, kind, value, source) VALUES (?,?,?,?,?,?)",
                     [(sp.id, idx, ts, kind, redact(moved(value) if kind == "write" else value), source)
                      for idx, ts, kind, value, source in sp.evidence])

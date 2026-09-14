@@ -297,7 +297,11 @@ def write_sessions(root, now=None):
             if reply:
                 content.append({"type": "text", "text": reply})
             if content:
-                rec("assistant", t, message={"role": "assistant", "content": content})
+                # Token use grows with the work: the demo's effort figures follow the minutes each turn runs.
+                usage = {"input_tokens": 12, "output_tokens": 300 + 180 * minutes, "cache_creation_input_tokens": 2000,
+                         "cache_read_input_tokens": 20000 + 9000 * minutes}
+                rec("assistant", t, message={"role": "assistant", "id": f"msg_{uuid.uuid4().hex[:16]}",
+                                             "model": "claude-sonnet-5", "content": content, "usage": usage})
             t += dt.timedelta(minutes=3 + (len(prompt) % 7))       # the user reads and types
         records.append({"type": "ai-title", "aiTitle": spec["title"], "sessionId": sid})
         with open(os.path.join(folder, f"{sid}.jsonl"), "w") as fh:
