@@ -199,7 +199,7 @@ def for_lines(con, lines):
                 if n["id"] in seen or not (t["first_turn"] <= n["turn_idx"] <= t["last_turn"]):
                     continue
                 seen.add(n["id"])
-                item = {k: n[k] for k in ("kind", "text", "because", "quote", "ts")} | {"session": n["session_id"]}
+                item = {k: n[k] for k in ("id", "kind", "text", "because", "quote", "ts")} | {"session": n["session_id"]}
                 if n["kind"] == "promise":
                     item["open"] = not finished and n["session_id"] == last_session
                 found.append(item)
@@ -214,19 +214,33 @@ def recent_sessions(con, days=2):
 
 
 def search(con, kind, q=None, open_only=False, limit=50):
-    """Decisions or promises with their idea, newest first; q: words that must all appear."""
+    """Decisions or promises, newest first, each once, with the first idea whose turns hold it (if any).
+    q: words that must all appear. open_only: promises still open (which needs an idea)."""
     from . import report
     data = report.collect(con, habits_data={})
-    out = []
+    idea_of, open_ids = {}, set()
     for line in data["lines"]:
-        for item in line["decisions" if kind == "decision" else "promises"]:
-            if open_only and not item.get("open"):
-                continue
-            hay = f"{item['text']} {item['because']} {item['quote']} {line['title']} {line['project']}".lower()
-            if q and not all(w in hay for w in q.lower().split()):
-                continue
-            session = next((s for s in data["sessions"] if s["id"] == item["session"]), None)
-            out.append({**item, "idea": line["title"], "anchor": line["anchor"], "project": line["project"],
-                        "status": line["status"], "resume": session["resume"] if session else None})
-    out.sort(key=lambda x: x["ts"] or "", reverse=True)
-    return out[:limit]
+        for item in line["decisions"] + line["promises"]:
+            idea_of.setdefault(item["id"], line)
+            if item.get("open"):
+                open_ids.add(item["id"])
+    sessions = {s["id"]: s for s in data["sessions"]}
+    out = []
+    for n in con.execute("SELECT * FROM notes WHERE kind=? ORDER BY ts DESC", (kind,)):
+        if open_only and n["id"] not in open_ids:
+            continue
+        line = idea_of.get(n["id"])
+        session = sessions.get(n["session_id"]) or {}
+        item = {k: n[k] for k in ("kind", "text", "because", "quote", "ts")} | {
+            "session": n["session_id"], "idea": line["title"] if line else None, "anchor": line["anchor"] if line else None,
+            "project": line["project"] if line else session.get("project"), "status": line["status"] if line else None,
+            "resume": session.get("resume")}
+        if kind == "promise":
+            item["open"] = n["id"] in open_ids
+        hay = " ".join(str(v) for v in (item["text"], item["because"], item["quote"], item["idea"], item["project"])).lower()
+        if q and not all(w in hay for w in q.lower().split()):
+            continue
+        out.append(item)
+        if len(out) == limit:
+            break
+    return out

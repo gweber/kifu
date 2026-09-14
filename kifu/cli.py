@@ -64,7 +64,8 @@ def cmd_decisions(args, con):
         print(json.dumps(items, indent=1, ensure_ascii=False))
         return
     for i in items:
-        print(f"\n{i['ts'][:10]}  {i['text']}  [{i['project']} · {i['idea']}]")
+        where = " · ".join(x for x in (i["project"], i["idea"]) if x)
+        print(f"\n{i['ts'][:10]}  {i['text']}  [{where}]")
         if i["because"]:
             print(f"  because {i['because']}")
         print(f"  “{i['quote'][:200]}”")

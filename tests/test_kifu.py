@@ -809,6 +809,11 @@ def test_decisions_and_promises_attach_to_their_idea(store):
     assert offline["decisions"][0]["because"] == "the bundle stays small on a phone at the beach"
     assert [p["open"] for p in offline["promises"]] == [False], "a later session went on with the idea"
     assert notes.search(con, "decision", "svelte")[0]["idea"] == "Offline mode for tidepool"
+    sid = offline["threads"][0]["session"]
+    con.execute("INSERT INTO notes(session_id, turn_idx, ts, kind, text, because, quote) VALUES (?, 9999, '2026-03-01', "
+                "'decision', 'Tabs over spaces', 'the linter says so', 'tabs it is')", (sid,))
+    loose = notes.search(con, "decision", "tabs")
+    assert len(loose) == 1 and loose[0]["idea"] is None and loose[0]["project"] == "tidepool", "outside any idea, still found"
     # The same promise in the idea's last session is open, until the idea is done.
     only_first = {**offline, "threads": offline["threads"][:1], "mark": None}
     notes.for_lines(con, [only_first])
