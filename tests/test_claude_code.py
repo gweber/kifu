@@ -99,7 +99,7 @@ def test_installer_adds_hooks_once_and_removes_only_its_own(monkeypatch):
     monkeypatch.setattr(claude_code, "kifu_command", lambda: ["/opt/kifu/bin/kifu"])
     foreign = {"model": "opus", "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "echo hi"}]}]}}
     installed, changes = claude_code.plan_settings(foreign)
-    assert len(changes) == 2 and installed["model"] == "opus"
+    assert len(changes) == 3 and installed["model"] == "opus"
     start = installed["hooks"]["SessionStart"]
     assert start[0]["hooks"][0]["command"] == "echo hi"
     assert start[1] == {"matcher": "startup", "hooks": [{"type": "command", "timeout": 10,
@@ -107,7 +107,7 @@ def test_installer_adds_hooks_once_and_removes_only_its_own(monkeypatch):
     again, changes = claude_code.plan_settings(installed)
     assert changes == [] and again == installed
     removed, changes = claude_code.plan_settings(installed, uninstall=True)
-    assert removed == foreign and len(changes) == 2
+    assert removed == foreign and len(changes) == 3
 
 
 def test_drain_analyzes_queued_sessions_and_empties_the_queue(store, monkeypatch):
@@ -118,3 +118,45 @@ def test_drain_analyzes_queued_sessions_and_empties_the_queue(store, monkeypatch
     assert drain.drain(debounce=0, log=lambda m: None) == 1
     assert drain.pending() == 0
     assert db.connect(cfg.db_path).execute("SELECT COUNT(*) FROM lines").fetchone()[0] > 0
+
+
+def test_dejavu_offers_earlier_ideas_to_claude_once_per_session(store):
+    from kifu import dejavu, link
+    cfg, con = store
+    dejavu._seen.clear()
+    t = con.execute("SELECT t.* FROM threads t JOIN lines l ON l.id=t.line_id WHERE l.title LIKE '%vault%' LIMIT 1").fetchone()
+    prompt = link.thread_text(t)
+    out = dejavu.check(con, prompt, "new-session")
+    assert out and out["ideas"][0]["title"] == "Import markdown vault into inkwell"
+    assert "most are probably NOT the same" in out["context"] and out["ideas"][0]["anchor"] in out["context"]
+    again = dejavu.check(con, prompt, "new-session")
+    assert again is None or all(i["anchor"] != out["ideas"][0]["anchor"] for i in again["ideas"]), "offered once"
+    assert dejavu.check(con, prompt, t["session_id"]) is None or all(
+        i["title"] != "Import markdown vault into inkwell" for i in dejavu.check(con, prompt, t["session_id"])["ideas"]), \
+        "the session's own ideas are not déjà vu"
+    assert dejavu.check(con, "go on", "other") is None and dejavu.check(con, "/compact keep the plan", "other") is None
+    cfg.dejavu_prompts = 1
+    dejavu._seen.clear()
+    dejavu.check(con, "something entirely different about a kitchen renovation budget", "s3")
+    assert dejavu.check(con, prompt, "s3") is None, "only the first prompts of a session are checked"
+
+
+def test_prompt_hook_passes_the_services_context_and_stays_quiet_without_it(store, monkeypatch):
+    monkeypatch.setattr(hooks, "_post", lambda path, body, timeout: {"context": "kifu: earlier ideas…", "ideas": [{}]})
+    out = hooks.prompt_submit({"prompt": "let us build the vault importer again from scratch", "session_id": "s"})
+    assert out["hookSpecificOutput"] == {"hookEventName": "UserPromptSubmit", "additionalContext": "kifu: earlier ideas…"}
+    assert hooks.prompt_submit({"prompt": "go on", "session_id": "s"}) is None
+    monkeypatch.setattr(hooks, "_post", lambda *a: (_ for _ in ()).throw(OSError("no service")))
+    assert hooks.prompt_submit({"prompt": "let us build the vault importer again from scratch"}) is None
+
+
+def test_dejavu_endpoint(store):
+    from fastapi.testclient import TestClient
+    from kifu import api, dejavu, link
+    _, con = store
+    dejavu._seen.clear()
+    t = con.execute("SELECT t.* FROM threads t JOIN lines l ON l.id=t.line_id WHERE l.title LIKE '%vault%' LIMIT 1").fetchone()
+    client = TestClient(api.app, base_url="http://127.0.0.1:8765")
+    r = client.post("/api/dejavu", json={"prompt": link.thread_text(t), "session_id": "fresh"})
+    assert r.status_code == 200 and r.json()["ideas"]
+    assert client.post("/api/dejavu", json={"prompt": "ok", "session_id": "fresh"}).json() == {"ideas": [], "context": None}

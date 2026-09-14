@@ -1,9 +1,11 @@
-"""Claude Code hooks: `kifu hook session-start` and `kifu hook session-end`.
+"""Claude Code hooks: `kifu hook session-start`, `kifu hook prompt-submit` and `kifu hook session-end`.
 
 Both read the hook's JSON from stdin and must never get in the way of a session: they import only the standard
 library and kifu's light modules, finish in well under a second, and on any error exit quietly.
 
 session-start  shows the open ideas of the project the session starts in, to the user and to Claude.
+prompt-submit  asks the service whether the prompt resembles an earlier idea, and passes candidates to Claude
+               (see dejavu.py). Without a running service it does nothing: embedding here would be too slow.
 session-end    queues the finished session, so kifu analyzes it minutes later instead of on the next manual run.
 """
 import datetime as dt
@@ -74,6 +76,30 @@ def session_start(payload):
             "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(context)}}
 
 
+DEJAVU_TIMEOUT = 1.5
+
+
+def _post(path, body, timeout):
+    url = f"http://127.0.0.1:{config.get().server_port}{path}"
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers={"content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read() or b"{}")
+
+
+def prompt_submit(payload):
+    prompt = (payload.get("prompt") or "").strip()
+    if len(prompt) < 25 or prompt.startswith("/"):
+        return None                     # the service would skip it too; do not spend the round trip
+    try:
+        out = _post("/api/dejavu", {"prompt": prompt, "session_id": payload.get("session_id")}, DEJAVU_TIMEOUT)
+    except (OSError, ValueError):
+        return None
+    if not out.get("context"):
+        return None
+    return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": out["context"]}}
+
+
 def queue_path():
     return os.path.join(config.get().data_dir, "queue.jsonl")
 
@@ -103,10 +129,12 @@ def main(argv):
     event = argv[0] if argv else ""
     payload = _read_stdin()
     try:
-        out = {"session-start": session_start, "session-end": session_end}[event](payload)
+        handler = {"session-start": session_start, "prompt-submit": prompt_submit, "session-end": session_end}[event]
     except KeyError:
-        print(f"kifu hook: unknown event {event!r} (session-start, session-end)", file=sys.stderr)
+        print(f"kifu hook: unknown event {event!r} (session-start, prompt-submit, session-end)", file=sys.stderr)
         return 0
+    try:
+        out = handler(payload)
     except Exception as exc:  # a hook must never break a session
         print(f"kifu hook {event}: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 0

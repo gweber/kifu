@@ -260,6 +260,12 @@ def get_blame(file: str, start: int | None = Query(None, ge=1), end: int | None 
         raise HTTPException(404, str(exc))
 
 
+@app.post("/api/dejavu", summary="Earlier ideas a session's prompt resembles, as context for Claude (the prompt hook)")
+def dejavu(prompt: str = Body(...), session_id: str | None = Body(None)):
+    from . import dejavu as dv
+    return dv.check(con(), prompt, session_id) or {"ideas": [], "context": None}
+
+
 @app.get("/api/memory-check", summary="Memory and CLAUDE.md files that name paths, files or projects which are gone")
 def memory_check():
     from . import memcheck

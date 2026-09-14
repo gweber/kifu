@@ -41,6 +41,11 @@ The file is ~/.config/kifu/config.toml (or $KIFU_CONFIG). Every key is optional:
     openai_model = "qwen3"
     openai_api_key_env = ""              # name of the variable that holds the key, if the server needs one
 
+    [dejavu]                             # Claude hears about earlier ideas a new session's prompts resemble
+    prompts = 3                          # substantive prompts checked per session; 0 turns it off
+    threshold = 0.5                      # cosine similarity for a candidate (Claude judges whether it is the same)
+    top = 3
+
     [server]
     host = "127.0.0.1"
     port = 8765
@@ -104,6 +109,9 @@ class Config:
     openai_url: str = "http://localhost:8000/v1/chat/completions"
     openai_model: str = "qwen3"
     openai_api_key_env: str = ""
+    dejavu_prompts: int = 3
+    dejavu_threshold: float = 0.5
+    dejavu_top: int = 3
     server_host: str = "127.0.0.1"
     server_port: int = 8765
     allowed_hosts: list[str] = field(default_factory=list)
@@ -141,6 +149,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
     emb = raw.get("embeddings", {})
     ana = raw.get("analysis", {})
     srv = raw.get("server", {})
+    dv = raw.get("dejavu", {})
     cfg = Config(
         user=raw.get("user", Config.user),
         timezone=raw.get("timezone", ""),
@@ -168,6 +177,9 @@ def load(path: str | os.PathLike | None = None) -> Config:
         openai_url=ana.get("openai_url", Config.openai_url),
         openai_model=ana.get("openai_model", Config.openai_model),
         openai_api_key_env=ana.get("openai_api_key_env", ""),
+        dejavu_prompts=int(dv.get("prompts", Config.dejavu_prompts)),
+        dejavu_threshold=float(dv.get("threshold", Config.dejavu_threshold)),
+        dejavu_top=int(dv.get("top", Config.dejavu_top)),
         server_host=srv.get("host", Config.server_host),
         server_port=int(srv.get("port", Config.server_port)),
         allowed_hosts=list(srv.get("allowed_hosts", [])),

@@ -12,6 +12,11 @@
   and your own prompt that wrote it (and the last real request when that prompt was "go on"), the idea it belonged to,
   and the commit. The edits in the sessions that wrote the file are replayed in order; when no edit text matches,
   the commit subject and then timing decide, and each answer says which. A whole file folds into sessions by lines.
+- **Déjà vu** (`UserPromptSubmit` hook, `/api/dejavu`, `[dejavu]` settings): the first three substantive prompts of
+  a session are compared with every earlier idea, and the closest go to Claude as context, which mentions one only
+  when it is clearly what you are returning to. Similarity alone misjudges too often to show it to you directly
+  (measured on 300 returns and 300 new ideas; see `dejavu.py`). Needs the running service; about 0.3 s per prompt.
+  `kifu install claude` adds the hook.
 
 ## 0.3.2 — 2026-09-14
 

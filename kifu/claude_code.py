@@ -1,7 +1,7 @@
 """`kifu install claude`: wire kifu into Claude Code for all projects.
 
-Adds two hooks to the user settings (SessionStart shows the project's open ideas, SessionEnd queues the session
-for analysis) and registers `kifu mcp` as a user-scope MCP server. Backs up settings.json before changing it,
+Adds three hooks to the user settings (SessionStart shows the project's open ideas, UserPromptSubmit tells Claude
+about earlier ideas a new session's prompts resemble, SessionEnd queues the session for analysis) and registers `kifu mcp` as a user-scope MCP server. Backs up settings.json before changing it,
 touches only kifu's own entries, and is safe to run again. `--uninstall` removes exactly those entries.
 """
 import datetime as dt
@@ -25,6 +25,7 @@ def kifu_command():
 
 HOOKS = {
     "SessionStart": {"matcher": "startup", "args": ["hook", "session-start"], "timeout": 10},
+    "UserPromptSubmit": {"matcher": None, "args": ["hook", "prompt-submit"], "timeout": 5},
     "SessionEnd": {"matcher": None, "args": ["hook", "session-end"], "timeout": 5},
 }
 
