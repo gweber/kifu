@@ -12,6 +12,7 @@ The file is ~/.config/kifu/config.toml (or $KIFU_CONFIG). Every key is optional:
     redact = true                        # remove secrets from session text when scanning (default)
     ignore_projects = [".bench*", "tmp-*"]   # top-level folders that are not projects (added to ?, ~, /tmp*, _*)
     tool_weights = { hermes = 0.5 }      # chat assistants' ideas rank lower; a line keeps its highest tool's weight
+    moved_paths = { "/home/ada/src/old" = "/home/ada/code/new" }   # projects moved since: old prefix = new prefix
     redact_patterns = ["corp-[0-9a-f]{32}"]   # extra regular expressions for your own token formats
 
     [[sources]]                          # where Claude Code keeps sessions; default: this machine only
@@ -89,6 +90,7 @@ class Config:
     redact_patterns: list[str] = field(default_factory=list)
     ignore_projects: list[str] = field(default_factory=list)
     tool_weights: dict = field(default_factory=lambda: {"hermes": 0.5})
+    moved_paths: dict = field(default_factory=dict)
     sources: list[Source] = field(default_factory=list)
     embed_url: str = "http://localhost:11434/v1/embeddings"
     embed_model: str = "bge-m3"
@@ -148,6 +150,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
         redact_patterns=list(raw.get("redact_patterns", [])),
         ignore_projects=list(raw.get("ignore_projects", [])),
         tool_weights={"hermes": 0.5, **raw.get("tool_weights", {})},
+        moved_paths={_path(k): _path(v) for k, v in raw.get("moved_paths", {}).items()},
         sources=[Source(host=s["host"], kind=s.get("kind", "claude"), ssh=s.get("ssh"),
                         path=s.get("path") or DEFAULT_PATHS.get(s.get("kind", "claude"), "~/.claude/projects"))
                  for s in raw.get("sources", [])],

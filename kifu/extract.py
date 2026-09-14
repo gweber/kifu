@@ -333,6 +333,16 @@ def is_project(area):
     return not any(fnmatch.fnmatch(area, pattern) for pattern in DEFAULT_IGNORED_PROJECTS + cfg.ignore_projects)
 
 
+def moved(path):
+    """A path as it is now: sessions keep the directory they ran in, even after the project moved."""
+    if not path:
+        return path
+    for old, new in config.get().moved_paths.items():
+        if path == old or path.startswith(old.rstrip("/") + "/"):
+            return new.rstrip("/") + path[len(old.rstrip("/")):]
+    return path
+
+
 def area_of(project):
     """Top-level project: tidepool/web/frontend -> tidepool."""
     return project.split("/")[0]
@@ -435,7 +445,7 @@ def scan_agent(con, kind, root, force=False, log=print, host=None):
 
 
 def store(con, sp, n_subagents, size, mtime, host=None):
-    cwd = sp.cwds.most_common(1)[0][0] if sp.cwds else None
+    cwd = moved(sp.cwds.most_common(1)[0][0] if sp.cwds else None)
     automated = int(len(sp.turns) == 0 or bool(sp.automated) or sp.entrypoint == "sdk-cli"
                     or any(marker in sp.path for marker in config.get().automated_markers))
     con.execute("DELETE FROM turns WHERE session_id=?", (sp.id,))
@@ -454,7 +464,8 @@ def store(con, sp, n_subagents, size, mtime, host=None):
                       redact(_clip_reply(t["texts"])) if t["texts"] else "", t["n_tools"], json.dumps(t["files"]),
                       int(t.get("queued", False))) for t in sp.turns])
     con.executemany("INSERT INTO evidence(session_id, turn_idx, ts, kind, value, source) VALUES (?,?,?,?,?,?)",
-                    [(sp.id, idx, ts, kind, redact(value), source) for idx, ts, kind, value, source in sp.evidence])
+                    [(sp.id, idx, ts, kind, redact(moved(value) if kind == "write" else value), source)
+                     for idx, ts, kind, value, source in sp.evidence])
     for remote in sp.teleported:
         con.execute("INSERT OR REPLACE INTO links VALUES (?,?,?,?,?)", (sp.id, remote, "teleport", 1.0, "teleported-from"))
     con.execute("INSERT OR REPLACE INTO files(path, size, mtime, session_id, kind) VALUES (?,?,?,?,?)",

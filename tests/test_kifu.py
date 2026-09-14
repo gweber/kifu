@@ -594,3 +594,14 @@ def test_api_filters_by_tool_and_lists_only_real_projects(client, store):
     assert [i["title"] for i in codex["items"]] == ["Opening book from own games"]
     stats = client.get("/api/stats").json()
     assert "codex" in stats["tools"] and all(extract.is_project(a) for a in stats["areas"])
+
+
+def test_a_moved_project_keeps_its_sessions(store):
+    cfg, con = store
+    cfg.moved_paths = {"/home/ada/code/tidepool": "/home/ada/code/tides"}
+    src = cfg.source_list()[0]
+    extract.scan(con, os.path.expanduser(src.path), force=True, host=src.host, log=lambda m: None)
+    assert one(con, "SELECT COUNT(*) FROM sessions WHERE cwd LIKE '/home/ada/code/tidepool%'") == 0
+    assert one(con, "SELECT COUNT(*) FROM sessions WHERE cwd='/home/ada/code/tides'") > 0
+    assert one(con, "SELECT COUNT(*) FROM evidence WHERE kind='write' AND value LIKE '/home/ada/code/tides/%'") > 0
+    assert extract.moved("/home/ada/code/tidepoolx") == "/home/ada/code/tidepoolx", "only whole path segments move"

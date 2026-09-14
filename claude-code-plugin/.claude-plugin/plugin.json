@@ -1,6 +1,6 @@
 {
   "name": "kifu",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "The ideas you left behind in earlier sessions: open ideas for the project when a session starts, tools to ask about and pick up an idea, and analysis of each session shortly after it ends. Needs the kifu CLI (pip install kifu).",
   "author": { "name": "Taro" },
   "homepage": "https://github.com/gweber/kifu",

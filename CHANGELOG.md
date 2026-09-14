@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 — 2026-09-14
+
+- **`moved_paths`:** a project moved since its sessions ran keeps them — working directories and written file
+  paths are mapped from the old prefix to the new one when scanning, so resume commands, project names and git
+  checks follow the move. Session files are not changed.
+
 ## 0.3.1 — 2026-09-14
 
 - **Chat assistants rank lower:** `tool_weights` (Hermes at 0.5 by default). An idea that also lives in a coding
