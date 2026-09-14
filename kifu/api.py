@@ -82,6 +82,9 @@ def _fingerprint(c, with_marks):
              tuple(c.execute("SELECT COUNT(*), TOTAL(score), TOTAL(LENGTH(title) + LENGTH(summary) + "
                              "LENGTH(COALESCE(verdict, '')) + LENGTH(COALESCE(loose_ends, ''))), MAX(last_ts) "
                              "FROM lines").fetchone())]
+    from . import notes
+    c.executescript(notes.SCHEMA_SQL)
+    parts.append(tuple(c.execute("SELECT COUNT(*), MAX(id) FROM notes").fetchone()))
     if with_marks:
         parts.append(tuple(c.execute("SELECT COUNT(*), MAX(updated) FROM marks").fetchone()))
     return repr(parts)

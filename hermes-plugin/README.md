@@ -10,7 +10,8 @@ left behind in your Claude Code sessions, where your agent and your dashboard ca
   `kifu_ideas` (search open ideas), `kifu_idea` (one idea's trail), `kifu_mark` (only when you say so).
 - **`/kifu`** in any chat: the top open ideas, or `/kifu <words>`, or `/kifu digest`. No model call.
 - **A weekly digest** of ideas that went quiet, as a `no_agent` cron job: no model call, and nothing is
-  sent when nothing is quiet.
+  sent when nothing is quiet. On Telegram it can come with buttons under each idea: Done, Dismiss, and Brief
+  (the brief for picking it up again, as a reply).
 
 ![The Ideas tab](../docs/hermes-ideas.png)
 
@@ -38,14 +39,20 @@ In `config.yaml`, under `plugins.entries.kifu.settings`:
 |---|---|---|
 | `url` | `http://127.0.0.1:8765` | where `kifu serve` listens (`$KIFU_URL` wins) |
 | `digest_deliver` | `local` | cron delivery target, e.g. `telegram:<chat_id>` |
-| `digest_schedule` | `0 18 * * 0` | cron schedule for the digest |
+| `digest_schedule` | `0 18 * * 0` | cron schedule for the digest, or `auto`: the hour of the week you most often start coding sessions |
 | `digest_quiet_days` | `21` | an open idea joins the digest after this many quiet days |
 
 ```bash
 hermes kifu status             # is kifu reachable, what does it hold
 hermes kifu digest             # the digest, now
 hermes kifu setup              # create or update the weekly digest job (--dry-run shows what it would do)
+hermes kifu setup --buttons --deliver telegram:<chat_id> [--schedule auto]
 ```
+
+**Buttons** need the gateway to send the digest itself, since a cron job delivers text only. `--buttons` records the
+choice in `~/.hermes/plugins-data/kifu_digest.json` and removes the text-only cron job, so the digest is never sent
+twice. Restart the gateway once afterwards. Buttons answer only in the digest's chat. With `--schedule auto` the
+time follows kifu's `/api/habits/slot` and moves as your habits do.
 
 ## Keeping the prompt small
 

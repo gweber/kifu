@@ -50,7 +50,8 @@ def cmd_verify(args, con):
 
 def cmd_notes(args, con):
     from . import notes
-    if notes.take(lambda: db.connect(args.db), backend=args.backend, workers=args.workers):
+    if notes.take(lambda: db.connect(args.db), backend=args.backend, workers=args.workers,
+                  log=lambda m: print(m, flush=True)):
         sys.exit(1)
 
 

@@ -65,13 +65,32 @@ already gone.
 does not belong to. Your corrections survive every rebuild, and once you have marked a few dozen ideas done
 or dismissed, scores lean towards what you actually pick up.
 
+**Knowing why, and not repeating yourself**
+
+- **`kifu blame file:line`** is git blame for intent: the session and your own prompt that wrote a line, the idea it
+  belonged to, and the commit. It replays the edits recorded in the sessions that wrote the file; when no edit
+  matches, it falls back to the commit message, then to timing, and says which. Claude can ask the same through
+  the MCP tool `kifu_why` before changing code whose purpose is unclear.
+- **Decisions and promises** (`kifu decisions`, `kifu promises`, MCP `kifu_decisions`): choices with their reasons
+  ("Svelte instead of React, because the bundle stays small"), and what the assistant said it would do later and
+  never did. Both show on the idea and in its brief.
+- **Déjà vu:** when a new session's first prompts resemble an earlier idea, Claude gets the candidates as context
+  and mentions one only when it is clearly what you are returning to.
+- **`kifu rules`:** the corrections you keep repeating ("no shims", "stop pausing"), worded as rules and checked
+  against your CLAUDE.md files and memory, with the file each belongs in.
+- **`kifu memory-check`:** memory and CLAUDE.md files that name paths which are gone, memories the index never loads,
+  and memory of projects that moved, with where their files are written now.
+- **Effort:** time and tokens per idea, and where the time went: shipped, dropped, or parked after hours of work.
+- **Journeys:** ideas that moved between tools, like a Hermes chat that became Claude Code work, and what became of them.
+
 **A JSON API** with OpenAPI docs at `/docs`, including a compact form for agents and a digest of ideas
 that went quiet.
 
 **A terminal view:** `kifu ideas`, `kifu sessions`, `kifu show <session>`, `kifu threads`.
 
 **A plugin for [Hermes Agent](https://github.com/NousResearch/hermes-agent)** — an Ideas tab in the
-dashboard, three agent tools ("what did I leave unfinished in tidepool?"), `/kifu`, and a weekly digest.
+dashboard, three agent tools ("what did I leave unfinished in tidepool?"), `/kifu`, and a weekly digest — on
+Telegram with Done, Dismiss and Brief buttons, at the hour you usually start coding if you like.
 See [hermes-plugin/](hermes-plugin/).
 
 ![kifu in the Hermes dashboard](docs/hermes-ideas.png)

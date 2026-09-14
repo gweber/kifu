@@ -836,3 +836,27 @@ def test_notes_read_only_changed_sessions(store):
     finally:
         analyze.BACKENDS["fixture"] = real
     assert notes.excerpt("x" * 2000 + " we chose A instead of B " + "y" * 2000).count("instead of") == 1
+
+
+def test_a_failed_notes_call_leaves_only_its_sessions_pending(store, monkeypatch):
+    from kifu import notes
+    cfg, con = store
+    con.execute("DELETE FROM noted")
+    con.commit()
+    monkeypatch.setattr(notes, "BATCH_CHARS", 200)             # one turn per call
+    real = analyze.BACKENDS["fixture"]
+
+    def flaky(system, user, schema):
+        if "instead of React" in user:
+            raise RuntimeError("rate limited")
+        return real(system, user, schema)
+
+    monkeypatch.setitem(analyze.BACKENDS, "fixture", flaky)
+    failed = notes.take(lambda: db.connect(cfg.db_path), backend="fixture", workers=2, log=lambda m: None)
+    assert failed == 1
+    left = [s["session"] for s in notes.pending(con)]
+    tide = one(con, "SELECT id FROM sessions WHERE ai_title='Tide prediction API'")
+    assert left == [tide], "every other session is written as its calls finish"
+    monkeypatch.setitem(analyze.BACKENDS, "fixture", real)
+    assert notes.take(lambda: db.connect(cfg.db_path), backend="fixture", workers=2, log=lambda m: None) == 0
+    assert notes.pending(con) == [] and one(con, "SELECT COUNT(*) FROM notes WHERE text LIKE '%Svelte%'") == 1

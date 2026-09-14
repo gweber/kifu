@@ -123,47 +123,64 @@ def take(con_factory, backend=None, workers=None, only=None, log=print):
     parts = list(batches(with_turns))
     log(f"notes: {len(todo)} sessions to read, {sum(len(s['turns']) for s in with_turns)} turns in {len(parts)} calls")
     system = analyze.system_prompt(SYSTEM)
-    done_sessions = {s["session"] for s in todo if not s["turns"]}
-    failed_sessions = set()
-
-    def run(batch):
-        user = "\n\n".join(f"[E{n}] {b['ts'][:10]} · {b['project']}\nUSER: {b['text']}" for n, b in enumerate(batch, 1))
-        return batch, analyze.BACKENDS[backend](system, user, schema=SCHEMA)
-
-    results, failed = [], 0
-    with cf.ThreadPoolExecutor(workers or cfg.workers) as pool:
-        futures = {pool.submit(run, b): b for b in parts}
-        for n, f in enumerate(cf.as_completed(futures), 1):
-            batch = futures[f]
-            try:
-                results.append(f.result())
-                log(f"  {n}/{len(parts)}")
-            except analyze.Refused:
-                results.append((batch, {"notes": []}))      # recorded as read, like a refused analysis
-                log(f"  {n}/{len(parts)} refused by the model")
-            except Exception as exc:  # its sessions stay pending: the next run asks again
-                failed += 1
-                failed_sessions |= {b["session"] for b in batch}
-                log(f"  {n}/{len(parts)} FAILED {str(exc)[:200]}")
-    by_session = {}
-    for batch, out in results:
-        for note in out.get("notes", []):
-            n = note.get("excerpt")
-            if not isinstance(n, int) or not 1 <= n <= len(batch) or not (note.get("text") or "").strip():
-                continue
-            b = batch[n - 1]
-            by_session.setdefault(b["session"], []).append((b["idx"], b["ts"], note))
     digests = {s["session"]: s["digest"] for s in todo}
+    waiting = {}                            # session -> batches not answered yet
+    for n, batch in enumerate(parts):
+        for b in batch:
+            waiting.setdefault(b["session"], set()).add(n)
+    found = {}                              # session -> [(turn, ts, note)]
     written = 0
-    for sid in ({s["session"] for s in with_turns} - failed_sessions) | done_sessions:
+
+    def write(sid):
+        rows = found.pop(sid, [])
         con.execute("DELETE FROM notes WHERE session_id=?", (sid,))
-        rows = by_session.get(sid, [])
         con.executemany("INSERT INTO notes(session_id, turn_idx, ts, kind, text, because, quote) VALUES (?,?,?,?,?,?,?)",
                         [(sid, idx, ts, note["kind"], note["text"].strip(), (note.get("because") or "").strip(),
                           (note.get("quote") or "")[:300]) for idx, ts, note in rows])
         con.execute("INSERT OR REPLACE INTO noted VALUES (?,?,?)", (sid, _key(digests[sid]), len(rows)))
-        written += len(rows)
+        return len(rows)
+
+    for s in todo:
+        if not s["turns"]:
+            write(s["session"])
     con.commit()
+
+    def run(batch):
+        user = "\n\n".join(f"[E{n}] {b['ts'][:10]} · {b['project']}\nUSER: {b['text']}" for n, b in enumerate(batch, 1))
+        return analyze.BACKENDS[backend](system, user, schema=SCHEMA)
+
+    failed = 0
+    with cf.ThreadPoolExecutor(workers or cfg.workers) as pool:
+        futures = {pool.submit(run, batch): n for n, batch in enumerate(parts)}
+        for done, f in enumerate(cf.as_completed(futures), 1):
+            n = futures[f]
+            batch = parts[n]
+            try:
+                out = f.result()
+            except analyze.Refused:
+                out = {"notes": []}                 # recorded as read, like a refused analysis
+            except Exception as exc:  # its sessions stay pending: the next run asks again
+                failed += 1
+                log(f"  {done}/{len(parts)} FAILED {str(exc)[:200]}")
+                for b in batch:
+                    waiting.pop(b["session"], None)
+                    found.pop(b["session"], None)
+                continue
+            for note in out.get("notes", []):
+                i = note.get("excerpt")
+                if isinstance(i, int) and 1 <= i <= len(batch) and (note.get("text") or "").strip():
+                    b = batch[i - 1]
+                    if b["session"] in waiting:
+                        found.setdefault(b["session"], []).append((b["idx"], b["ts"], note))
+            # A session is written as soon as every batch holding its turns has answered.
+            for sid in {b["session"] for b in batch}:
+                if sid in waiting:
+                    waiting[sid].discard(n)
+                    if not waiting[sid]:
+                        del waiting[sid]
+                        written += write(sid)
+            con.commit()
+            log(f"  {done}/{len(parts)}")
     log(f"notes: {written} decisions and promises")
     return failed
 
