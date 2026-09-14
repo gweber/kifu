@@ -206,6 +206,18 @@ def cmd_reclassify(args, con):
     reclassify.reclassify(con, tools=args.tool or None, backend=args.backend)
 
 
+def cmd_blame(args, con):
+    from . import blame
+    try:
+        result = blame.blame(con, args.target)
+    except blame.BlameError as exc:
+        sys.exit(f"kifu blame: {exc}")
+    if args.json:
+        print(json.dumps(result, indent=1, ensure_ascii=False))
+    else:
+        print(blame.format_text(result, width=args.width, whole_file=blame.parse_target(args.target)[1] is None))
+
+
 def cmd_memory_check(args, con):
     from . import memcheck
     found = memcheck.check(con)
@@ -282,6 +294,10 @@ def main(argv=None):
             s.add_argument("--bare", action="store_true", help="without the instruction for a new session")
         else:
             s.add_argument("--print", action="store_true", help="print the brief instead of starting claude")
+    s = sub.add_parser("blame", help="git blame for intent: the session and prompt behind lines of code")
+    s.add_argument("target", help="file, file:line or file:start-end")
+    s.add_argument("--json", action="store_true")
+    s.add_argument("--width", type=int, default=300, help="characters of each prompt to show")
     s = sub.add_parser("memory-check", help="memory and CLAUDE.md files that name paths which are gone")
     s.add_argument("--json", action="store_true")
     s = sub.add_parser("drain", help="analyze sessions queued by the SessionEnd hook")
@@ -303,7 +319,7 @@ def main(argv=None):
      "verify": cmd_verify, "run": cmd_run, "ideas": cmd_ideas, "sessions": cmd_sessions, "show": cmd_show, "threads": cmd_threads,
      "serve": cmd_serve, "report": cmd_report, "demo": cmd_demo, "config": cmd_config,
      "redact": cmd_redact, "mcp": cmd_mcp, "brief": cmd_brief, "resume": cmd_resume, "drain": cmd_drain,
-     "install": cmd_install, "reclassify": cmd_reclassify, "memory-check": cmd_memory_check}[args.cmd](args, con)
+     "install": cmd_install, "reclassify": cmd_reclassify, "memory-check": cmd_memory_check, "blame": cmd_blame}[args.cmd](args, con)
 
 
 if __name__ == "__main__":

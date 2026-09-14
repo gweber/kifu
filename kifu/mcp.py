@@ -36,6 +36,12 @@ TOOLS = [
      "description": "A compact brief to continue an idea in this session: open loose ends, what changed since, "
                     "files to look at. Accepts an anchor or search words.",
      "inputSchema": _schema({"idea": {"type": "string", "description": "anchor or words from the title"}}, ["idea"])},
+    {"name": "kifu_why",
+     "description": "Why code exists: for lines of a file, the earlier session and the user's own prompt that "
+                    "wrote them, the idea they belonged to, and the commit. Use before changing code whose intent "
+                    "is unclear, or when the user asks why something is the way it is.",
+     "inputSchema": _schema({"file": {"type": "string", "description": "path, absolute or relative to the project"},
+                             "start": {"type": "integer"}, "end": {"type": "integer"}}, ["file"])},
     {"name": "kifu_mark",
      "description": "Mark an idea done, dismissed, or open again. Only when the user says so.",
      "inputSchema": _schema({"anchor": {"type": "string"}, "state": {"type": "string", "enum": ["done", "dismissed", "open"]},
@@ -49,6 +55,8 @@ def _project():
 
 def call(name, args):
     con = db.connect()
+    if name == "kifu_why":
+        return _why(con, args)
     data = report.collect(con, habits_data={})
     if name == "kifu_ideas":
         limit = max(1, min(int(args.get("limit") or 8), 20))
@@ -82,6 +90,20 @@ def call(name, args):
         marks.set_mark(con, line["anchor"], args["state"], args.get("note") or "")
         return {"anchor": line["anchor"], "title": line["title"], "mark": args["state"]}
     raise ValueError(f"unknown tool {name}")
+
+
+def _why(con, args):
+    """kifu_why: blame for a line range, or for a whole file the sessions whose work it holds, most lines first."""
+    from . import blame
+    file = os.path.expanduser(args["file"])
+    if not os.path.isabs(file):
+        file = os.path.join(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd(), file)
+    start = args.get("start")
+    result = blame.blame(con, f"{file}:{start}-{args.get('end') or start}" if start else file)
+    if start:
+        return result
+    return {"file": result["file"], "sessions_that_wrote_it": result["sessions_that_wrote_it"],
+            "sessions": blame.by_session(result)[:10]}
 
 
 def handle(msg):

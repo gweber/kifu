@@ -250,6 +250,16 @@ def session(session_id: str, turns: bool = True):
     return out
 
 
+@app.get("/api/blame", summary="git blame for intent: the session, prompt and idea behind lines of a file")
+def get_blame(file: str, start: int | None = Query(None, ge=1), end: int | None = Query(None, ge=1)):
+    from . import blame
+    target = f"{file}:{start}-{end or start}" if start else file
+    try:
+        return blame.blame(con(), target)
+    except blame.BlameError as exc:
+        raise HTTPException(404, str(exc))
+
+
 @app.get("/api/memory-check", summary="Memory and CLAUDE.md files that name paths, files or projects which are gone")
 def memory_check():
     from . import memcheck

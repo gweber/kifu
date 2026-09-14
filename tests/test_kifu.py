@@ -658,3 +658,60 @@ def test_an_idea_that_moved_between_tools_shows_its_journey(store):
     pair = next(p for p in data["stats"]["handoffs"] if (p["from"], p["to"]) == ("hermes", "claude"))
     assert pair["ideas"] >= 1 and any(e["anchor"] == line["anchor"] for e in pair["examples"])
     assert report.compact(line, data)["journey"].startswith("hermes → claude")
+
+
+# ---- blame -------------------------------------------------------------------------------------------------
+
+def _transcript(folder, sid, cwd, events):
+    """A Claude Code transcript: events are (iso time, 'prompt', text) or (iso time, tool name, input)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    base = {"sessionId": sid, "cwd": cwd, "entrypoint": "cli", "isSidechain": False}
+    with open(folder / f"{sid}.jsonl", "w") as fh:
+        for n, (ts, kind, body) in enumerate(events):
+            if kind == "prompt":
+                r = {"type": "user", "message": {"role": "user", "content": body}, "origin": {"kind": "human"}}
+            else:
+                r = {"type": "assistant", "message": {"role": "assistant", "content": [
+                    {"type": "tool_use", "id": f"toolu_{n}", "name": kind, "input": body}]}}
+            fh.write(json.dumps({**base, **r, "uuid": f"{sid}-{n}", "timestamp": ts}) + "\n")
+
+
+def test_blame_finds_the_prompt_behind_each_line(store, tmp_path):
+    from kifu import blame
+    cfg, con = store
+    repo = tmp_path / "code" / "lab"
+    repo.mkdir(parents=True)
+    path = str(repo / "calc.py")
+    sid = "0b1a2c3d-0000-4000-8000-000000000001"
+    _transcript(tmp_path / "sessions" / "-code-lab", sid, str(repo), [
+        ("2026-02-10T09:00:00Z", "prompt", "add a total() helper for the invoice screen"),
+        ("2026-02-10T09:01:00Z", "Write", {"file_path": path, "content": "def total(items):\n    return sum(items)\n"}),
+        ("2026-02-10T09:20:00Z", "prompt", "prices need VAT, Germany is 19 percent"),
+        ("2026-02-10T09:21:00Z", "Edit", {"file_path": path, "old_string": "    return sum(items)",
+                                          "new_string": "    return round(sum(items) * VAT, 2)"}),
+        ("2026-02-10T09:22:00Z", "prompt", "go on"),
+        ("2026-02-10T09:23:00Z", "Write", {"file_path": path, "content": "VAT = 1.19\n\n\ndef total(items):\n"
+                                                                       "    return round(sum(items) * VAT, 2)\n"}),
+    ])
+    extract.scan(con, str(tmp_path / "sessions"), host="laptop", log=lambda m: None)
+    (repo / "calc.py").write_text("VAT = 1.19\n\n\ndef total(items):\n    return round(sum(items) * VAT, 2)\n")
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "invoice totals with VAT", date="2026-02-10T09:30:00Z")
+    with open(path, "a") as fh:
+        fh.write("\n\ndef by_hand():\n    return 42\n")
+    _git(repo, "commit", "-qam", "typed without a session", date="2026-02-12T10:00:00Z")
+
+    result = blame.blame(con, f"{path}:1-10")
+    at = {line: g for g in result["ranges"] for line in range(g["start"], g["end"] + 1)}
+    assert at[1]["how"] == "edit" and at[1]["origin"]["prompt"] == "go on"
+    assert at[1]["origin"]["asked"] == "prices need VAT, Germany is 19 percent", "'go on' explains nothing"
+    assert at[5]["origin"]["prompt"] == "prices need VAT, Germany is 19 percent"
+    assert at[4]["origin"]["prompt"] == "add a total() helper for the invoice screen"
+    assert at[9]["origin"] is None and at[9]["commit"]["summary"] == "typed without a session"
+    assert result["sessions_that_wrote_it"] == 1 and result["edits_replayed"] == 3
+    folded = blame.by_session(result)
+    assert folded[0]["origin"]["session"] == sid and folded[0]["lines"] == 5, "blank lines of the same commit go by time"
+    assert "prices need VAT" in blame.format_text(blame.blame(con, f"{path}:5"))
+    with pytest.raises(blame.BlameError):
+        blame.blame(con, str(repo / "nope.py"))

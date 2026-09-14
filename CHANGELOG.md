@@ -8,6 +8,10 @@
 - **Journeys between tools:** an idea that went from one tool to another (a Hermes chat that became Claude Code
   work, Cline to Codex) shows its path on the card (`journey`), and the Habits tab counts each handoff with how many
   of those ideas shipped and how many are still open (`stats.handoffs`).
+- **`kifu blame file[:line[-line]]`** (MCP `kifu_why`, `/api/blame`): git blame for intent. For each line, the session
+  and your own prompt that wrote it (and the last real request when that prompt was "go on"), the idea it belonged to,
+  and the commit. The edits in the sessions that wrote the file are replayed in order; when no edit text matches,
+  the commit subject and then timing decide, and each answer says which. A whole file folds into sessions by lines.
 
 ## 0.3.2 — 2026-09-14
 
