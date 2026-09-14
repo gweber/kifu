@@ -605,3 +605,41 @@ def test_a_moved_project_keeps_its_sessions(store):
     assert one(con, "SELECT COUNT(*) FROM sessions WHERE cwd='/home/ada/code/tides'") > 0
     assert one(con, "SELECT COUNT(*) FROM evidence WHERE kind='write' AND value LIKE '/home/ada/code/tides/%'") > 0
     assert extract.moved("/home/ada/code/tidepoolx") == "/home/ada/code/tidepoolx", "only whole path segments move"
+
+
+# ---- memory check ------------------------------------------------------------------------------------------
+
+def test_memory_check_finds_what_memory_points_at_that_is_gone(store, tmp_path):
+    from kifu import memcheck
+    cfg, con = store
+    code = tmp_path / "code"
+    (code / "tides" / "src").mkdir(parents=True)
+    (code / "tides" / "src" / "a.py").write_text("")
+    cfg.project_roots = [str(code)]
+    cfg.moved_paths = {str(code / "tidepool"): str(code / "tides")}
+    cfg.other_hosts = ["nas"]
+    claude = tmp_path / "claude"
+    memory = claude / "projects" / "-code-tidepool" / "memory"
+    memory.mkdir(parents=True)
+    (memory / "MEMORY.md").write_text("- [Build](build.md) — how\n- [Gone](gone.md) — deleted\n")
+    (memory / "build.md").write_text("---\nname: build\n---\n\nHow the project builds.\n\n"
+                                     f"Run `{code}/tidepool/make.sh`.\nLogs: {code}/tides/src/a.py\n"
+                                     f"On nas: {code}/backups/x.tar\nTemplate {code}/tides/log-DATE.txt\n")
+    (memory / "forgotten.md").write_text("never indexed\n")
+    (claude / "projects" / "-code-tidepool" / "s.jsonl").write_text(json.dumps({"cwd": str(code / "tidepool")}) + "\n")
+    cfg.moved_paths = {}
+    con.executemany("INSERT INTO evidence(session_id, turn_idx, ts, kind, value, source) VALUES ('s', 0, ?, 'write', ?, 'main')",
+                    [("2026-01-01", f"{code}/tidepool/src/{n}.py") for n in "abc"]
+                    + [("2026-02-01", f"{code}/tides/src/{n}.py") for n in "abc"])
+    for n in "bc":
+        (code / "tides" / "src" / f"{n}.py").write_text("")
+    found = memcheck.check(con, root=str(claude))
+    kinds = sorted((f["kind"], os.path.basename(f.get("path") or f["file"])) for f in found)
+    assert kinds == [("index-missing-file", "gone.md"), ("missing-path", "make.sh"), ("not-in-index", "forgotten.md"),
+                     ("orphaned-memory", "tidepool")], "other hosts' paths, placeholders and existing files are skipped"
+    orphan = next(f for f in found if f["kind"] == "orphaned-memory")
+    assert orphan["went_to"] == {"path": str(code / "tides"), "files": 3}
+    cfg.moved_paths = {str(code / "tidepool"): str(code / "tides")}
+    missing = next(f for f in memcheck.check(con, root=str(claude)) if f["kind"] == "missing-path")
+    assert missing["moved_to"] == f"{code}/tides/make.sh" and not missing["moved_exists"]
+    assert all(memcheck.describe(f) for f in found)

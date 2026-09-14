@@ -122,7 +122,8 @@ def embed_texts(texts, batch=32):
     if embedder is not None:
         return np.asarray(embedder(texts), dtype=np.float32)
     out = []
-    with httpx.Client(timeout=120) as client:
+    headers = {"Authorization": f"Bearer {cfg.embed_api_key}"} if cfg.embed_api_key else {}
+    with httpx.Client(timeout=120, headers=headers) as client:
         for i in range(0, len(texts), batch):
             try:
                 r = client.post(cfg.embed_url, json={"model": cfg.embed_model, "input": texts[i:i + batch]})

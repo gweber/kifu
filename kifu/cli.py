@@ -206,6 +206,17 @@ def cmd_reclassify(args, con):
     reclassify.reclassify(con, tools=args.tool or None, backend=args.backend)
 
 
+def cmd_memory_check(args, con):
+    from . import memcheck
+    found = memcheck.check(con)
+    if args.json:
+        print(json.dumps(found, indent=1))
+        return
+    for f in found:
+        print(memcheck.describe(f))
+    print(f"{len(found)} finding(s)" if found else "memory and CLAUDE.md files: nothing points at something gone")
+
+
 def cmd_config(args, con):
     cfg = config.get()
     out = dataclasses.asdict(cfg)
@@ -271,6 +282,8 @@ def main(argv=None):
             s.add_argument("--bare", action="store_true", help="without the instruction for a new session")
         else:
             s.add_argument("--print", action="store_true", help="print the brief instead of starting claude")
+    s = sub.add_parser("memory-check", help="memory and CLAUDE.md files that name paths which are gone")
+    s.add_argument("--json", action="store_true")
     s = sub.add_parser("drain", help="analyze sessions queued by the SessionEnd hook")
     s.add_argument("--now", action="store_true", help="do not wait for sessions to stop ending")
     s = sub.add_parser("install", help="wire kifu into Claude Code: hooks and MCP server")
@@ -290,7 +303,7 @@ def main(argv=None):
      "verify": cmd_verify, "run": cmd_run, "ideas": cmd_ideas, "sessions": cmd_sessions, "show": cmd_show, "threads": cmd_threads,
      "serve": cmd_serve, "report": cmd_report, "demo": cmd_demo, "config": cmd_config,
      "redact": cmd_redact, "mcp": cmd_mcp, "brief": cmd_brief, "resume": cmd_resume, "drain": cmd_drain,
-     "install": cmd_install, "reclassify": cmd_reclassify}[args.cmd](args, con)
+     "install": cmd_install, "reclassify": cmd_reclassify, "memory-check": cmd_memory_check}[args.cmd](args, con)
 
 
 if __name__ == "__main__":

@@ -250,6 +250,12 @@ def session(session_id: str, turns: bool = True):
     return out
 
 
+@app.get("/api/memory-check", summary="Memory and CLAUDE.md files that name paths, files or projects which are gone")
+def memory_check():
+    from . import memcheck
+    return memcheck.check(con())
+
+
 @app.get("/api/habits", summary="Rhythm, focus, reply time, juggling, questions left behind")
 def get_habits():
     return payload()["habits"]

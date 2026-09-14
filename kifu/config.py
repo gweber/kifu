@@ -13,6 +13,7 @@ The file is ~/.config/kifu/config.toml (or $KIFU_CONFIG). Every key is optional:
     ignore_projects = [".bench*", "tmp-*"]   # top-level folders that are not projects (added to ?, ~, /tmp*, _*)
     tool_weights = { hermes = 0.5 }      # chat assistants' ideas rank lower; a line keeps its highest tool's weight
     moved_paths = { "/home/ada/src/old" = "/home/ada/code/new" }   # projects moved since: old prefix = new prefix
+    other_hosts = ["nas"]                 # machine nicknames besides sources and ~/.ssh/config (memory-check)
     redact_patterns = ["corp-[0-9a-f]{32}"]   # extra regular expressions for your own token formats
 
     [[sources]]                          # where Claude Code keeps sessions; default: this machine only
@@ -91,9 +92,11 @@ class Config:
     ignore_projects: list[str] = field(default_factory=list)
     tool_weights: dict = field(default_factory=lambda: {"hermes": 0.5})
     moved_paths: dict = field(default_factory=dict)
+    other_hosts: list[str] = field(default_factory=list)
     sources: list[Source] = field(default_factory=list)
     embed_url: str = "http://localhost:11434/v1/embeddings"
     embed_model: str = "bge-m3"
+    embed_api_key: str = ""              # literal key for the embeddings endpoint (e.g. a LiteLLM virtual key)
     backend: str = "claude"
     model: str = "sonnet"
     effort: str = "medium"
@@ -151,11 +154,13 @@ def load(path: str | os.PathLike | None = None) -> Config:
         ignore_projects=list(raw.get("ignore_projects", [])),
         tool_weights={"hermes": 0.5, **raw.get("tool_weights", {})},
         moved_paths={_path(k): _path(v) for k, v in raw.get("moved_paths", {}).items()},
+        other_hosts=list(raw.get("other_hosts", [])),
         sources=[Source(host=s["host"], kind=s.get("kind", "claude"), ssh=s.get("ssh"),
                         path=s.get("path") or DEFAULT_PATHS.get(s.get("kind", "claude"), "~/.claude/projects"))
                  for s in raw.get("sources", [])],
         embed_url=emb.get("url", Config.embed_url),
         embed_model=emb.get("model", Config.embed_model),
+        embed_api_key=emb.get("api_key", Config.embed_api_key),
         backend=ana.get("backend", Config.backend),
         model=ana.get("model", Config.model),
         effort=ana.get("effort", Config.effort),
@@ -173,6 +178,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
     cfg.data_dir = _path(env.get("KIFU_DATA_DIR", cfg.data_dir))
     cfg.embed_url = env.get("KIFU_EMBED_URL", cfg.embed_url)
     cfg.embed_model = env.get("KIFU_EMBED_MODEL", cfg.embed_model)
+    cfg.embed_api_key = env.get("KIFU_EMBED_API_KEY", cfg.embed_api_key)
     cfg.backend = env.get("KIFU_BACKEND", cfg.backend)
     cfg.model = env.get("KIFU_CLAUDE_MODEL", cfg.model)
     cfg.effort = env.get("KIFU_CLAUDE_EFFORT", cfg.effort)

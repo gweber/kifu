@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **`kifu memory-check`** (and `/api/memory-check`): memory and CLAUDE.md files that name paths which are gone, memory
+  files the MEMORY.md index does not load, and memory folders of projects that no longer exist, with where the
+  project's files are written now. Paths of other machines are skipped (sources, `~/.ssh/config` hosts, `other_hosts`).
+
 ## 0.3.2 — 2026-09-14
 
 - **`moved_paths`:** a project moved since its sessions ran keeps them — working directories and written file
