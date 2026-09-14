@@ -52,11 +52,11 @@ Find two things, and nothing else:
 
 decision: a real choice between alternatives that shapes the work beyond this turn, with the reason if one is given. "Use SQLite instead of Postgres because it runs on the Pi" is one. Routine steps, "I fixed the typo", or restating the task are not.
   text: the decision in one short sentence, English ("SQLite instead of Postgres for the event store")
-  because: the reason as given, one short sentence, English; empty when none is given
+  because: the reason as given, English, written to follow the word "because" ("it runs on the Pi", not "because it runs on the Pi" or "to save memory"); empty when none is given
 
 promise: the assistant deferring or leaving out something itself, meaning to come back to it: "I'll add caching later", "error handling is out of scope for now", "skipped the migration for now". Not the user's own plans, not a question offered as an option, not something done in the same reply.
   text: what was deferred, one short sentence, English, as a task ("Add caching to the tide endpoint")
-  because: why it was deferred, if said; else empty
+  because: why it was deferred, if said, written to follow the word "because"; else empty
 
 For both: excerpt is the excerpt number; quote is the exact words from the excerpt (at most 200 characters), in their original language.
 Most excerpts contain neither: return only what clearly qualifies. JSON only."""
@@ -95,7 +95,7 @@ def pending(con, only=None):
 
 
 def _key(digest):
-    return hashlib.sha1(f"{digest}|notes-1".encode()).hexdigest()[:16]
+    return hashlib.sha1(f"{digest}|{hashlib.sha1(SYSTEM.encode()).hexdigest()[:8]}".encode()).hexdigest()[:16]
 
 
 def batches(sessions):
