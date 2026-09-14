@@ -54,7 +54,7 @@ def test_mcp_handshake_and_tools(store, monkeypatch):
     assert init["result"]["protocolVersion"] == "2025-06-18" and "tools" in init["result"]["capabilities"]
     assert mcp.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
     names = [t["name"] for t in mcp.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]]
-    assert names == ["kifu_ideas", "kifu_idea", "kifu_brief", "kifu_why", "kifu_mark"]
+    assert names == ["kifu_ideas", "kifu_idea", "kifu_brief", "kifu_decisions", "kifu_why", "kifu_mark"]
 
     def tool(name, **args):
         r = mcp.handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": name, "arguments": args}})

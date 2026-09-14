@@ -8,7 +8,7 @@ import fcntl
 import os
 import time
 
-from . import analyze, config, db, embed, extract, hooks, link, sources
+from . import analyze, config, db, embed, extract, hooks, link, notes, sources
 
 DEBOUNCE = 120
 
@@ -59,6 +59,7 @@ def drain(debounce=DEBOUNCE, log=print):
         embed.build_moves(con)
         embed.embed_moves(con, log=log)
         analyze.analyze(lambda: db.connect(), log=log)
+        notes.take(lambda: db.connect(), only=notes.recent_sessions(con), log=log)
         link.build_lines(con, log=log)
         _consume(n)
         runs += 1

@@ -20,6 +20,13 @@
 - **Effort:** tokens per turn and session from Claude Code transcripts (each API response counted once; subagents
   count for their session; needs `kifu scan --force` once for older sessions). Each idea shows its active time and
   tokens, and the Habits tab shows where the time went by outcome, and the costliest ideas never finished.
+- **`kifu rules`** (`/api/rules`): corrections you keep repeating ("no shims", "stop pausing"), grouped by one model
+  call, worded as rules, checked against CLAUDE.md files and memory, with the file each would go in. A group needs 3
+  prompts from 2 sessions, counted by kifu from the prompts, not taken from the model.
+- **Decisions and promises** (`kifu notes`, `kifu decisions`, `kifu promises`, MCP `kifu_decisions`, `/api/decisions`,
+  `/api/promises`): choices with their reasons, and what the assistant said it would do later, read from the turns
+  whose replies use that wording. Open promises (made in an idea's last session) and decisions show on the idea and
+  in the brief. `kifu run` includes the pass; the drain after a session end reads only the last two days.
 
 ## 0.3.2 — 2026-09-14
 

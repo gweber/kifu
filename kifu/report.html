@@ -108,6 +108,10 @@ code.cmd { display: inline-block; background: var(--chip); border-radius: 5px; p
 .srow .p { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .srow .ideas { grid-column: 3; display: flex; flex-wrap: wrap; gap: 4px; }
 .srow .ideas .chip { cursor: pointer; color: var(--ink); white-space: normal; border-radius: 10px; }
+.promised { margin: .5rem 0; font-size: .92em; }
+.promised ul, .decisions ul { margin: .25rem 0 0; padding-left: 1.2rem; }
+.decisions { margin: .4rem 0; font-size: .92em; }
+.decisions li { margin: .3rem 0; }
 /* habits */
 .viz { --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --grid: #e7e0d2; --axis: #cdc4b3;
   --q1: #cde2fb; --q2: #9ec5f4; --q3: #6da7ec; --q4: #3987e5; --q5: #256abf; --q6: #184f95; --q7: #0d366b; --q0: #f1ebdf; }
@@ -301,6 +305,8 @@ function card(l, open = false) {
     ${activity(l.check)}
     ${l.loose.length ? `<ul class="loose">${l.loose.map(x => `<li${l.check && l.check.settled.includes(x) ? ' class="settled" title="looks settled by a later commit"' : ""}>${esc(x)}</li>`).join("")}</ul>` : ""}
     ${l.next ? `<div class="next"><b>Next:</b> ${esc(l.next)}</div>` : ""}
+    ${(l.promises || []).filter(p => p.open).length ? `<div class="promised"><b>The assistant said it would come back to:</b><ul>${l.promises.filter(p => p.open).map(p => `<li title="${esc(p.quote)}">${esc(p.text)}</li>`).join("")}</ul></div>` : ""}
+    ${(l.decisions || []).length ? `<details class="decisions"><summary>${l.decisions.length} decision${l.decisions.length > 1 ? "s" : ""} along the way</summary><ul>${l.decisions.map(d => `<li><b>${esc(d.text)}</b>${d.because ? ` — because ${esc(d.because)}` : ""}<div class="quote">“${esc(d.quote)}” · ${fmt(d.ts)}</div></li>`).join("")}</ul></details>` : ""}
     <details ${open ? "open" : ""}><summary>Trail through ${l.threads.length} thread${l.threads.length > 1 ? "s" : ""}</summary>
       <ul class="trail">${trail}</ul></details>
   </article>`;

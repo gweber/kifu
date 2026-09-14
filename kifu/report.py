@@ -4,7 +4,7 @@ import json
 import os
 import socket
 
-from . import config, habits, verify
+from . import config, habits, notes, verify
 from .extract import area_of, is_project
 from .link import thread_key
 
@@ -50,11 +50,13 @@ def collect(con, habits_data=None):
             "effort": effort(members, turn_cost),
             "threads": [{"session": t["session_id"], "title": t["title"], "status": t["status"], "kind": t["kind"],
                          "first": t["first_ts"], "last": t["last_ts"], "quote": t["quote"],
+                         "first_turn": t["first_turn"], "last_turn": t["last_turn"],
                          "loose": json.loads(t["loose_ends"] or "[]"), "key": thread_key(t),
                          "project": by_id[t["session_id"]]["project"] if t["session_id"] in by_id else "",
                          "resume": by_id[t["session_id"]]["resume"] if t["session_id"] in by_id else None}
                         for t in members],
         })
+    notes.for_lines(con, lines)
     calibrate(lines)
     for line in lines:
         # Every loose end looks settled by later commits: probably done outside the sessions.
@@ -246,6 +248,8 @@ def compact(line, data):
             "tools": line["tools"], "kinds": line["kinds"],
             "journey": " → ".join(step["tool"] for step in line["journey"]) or None,
             "effort": {k: line["effort"][k] for k in ("minutes", "tokens_out", "tokens_in", "tokens_cache")},
+            "decisions": [{k: d[k] for k in ("text", "because")} for d in line["decisions"][-3:]],
+            "open_promises": [p["text"] for p in line["promises"] if p.get("open")][:3],
             "areas": line["areas"], "first": line["first"][:10], "last": line["last"][:10],
             "quiet_days": quiet_days(line, data["stats"]["now"]), "sessions": line["n_sessions"],
             "score": line["score"], "open": line["score"] > 0 and not line["mark"],

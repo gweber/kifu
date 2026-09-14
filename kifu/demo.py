@@ -43,7 +43,9 @@ SESSIONS = [
              ("could it work offline on the beach? there is no signal down there",
               "Yes: a service worker can cache the last predictions and the app shell. The tricky part is "
               "invalidation, since predictions go stale after 48 hours. Want me to sketch it?", [], 4),
-             ("later, first the frontend", "Understood. I scaffolded a small Svelte frontend with the chart.",
+             ("later, first the frontend", "Understood. I scaffolded a small Svelte frontend with the chart. "
+              "I went with Svelte instead of React because the bundle stays small on a phone at the beach. "
+              "The offline cache I left for later, it needs its own pass.",
               ["write:tidepool/web/src/App.svelte", "commit:web: tide chart"], 40),
          ],
          threads=[
@@ -325,6 +327,8 @@ def fixture_backend(system, user, schema):
         return _consolidate(user)
     if "settled" in schema.get("properties", {}):
         return _judge(user)
+    if "notes" in schema.get("properties", {}):
+        return _notes(user)
     if "rules" in schema.get("properties", {}):
         return _rules(user)
     if "personal" in schema.get("properties", {}):
@@ -346,6 +350,22 @@ def fixture_backend(system, user, schema):
          "status": t["status"],
          "first_move": move_of(t["at"]), "last_move": max(move_of(t["at"]), move_of(t["to"])), "quote": t["quote"],
          "loose_ends": t["loose"], "next_step": t["next"], "keywords": t["keywords"]} for t in spec["threads"]]}
+
+
+def _notes(user):
+    """A sentence with "instead of" is a decision, one with "for later" or "for now" a promise."""
+    out = []
+    for n, body in re.findall(r"^\[E(\d+)\][^\n]*\n(.*?)(?=^\[E\d+\]|\Z)", user, re.M | re.S):
+        reply = body.split("ASSISTANT:", 1)[-1]
+        for sentence in re.split(r"(?<=[.!?])\s+", reply):
+            if "instead of" in sentence:
+                what, _, why = sentence.partition(" because ")
+                out.append({"excerpt": int(n), "kind": "decision", "text": what.strip(" ."), "because": why.strip(" ."),
+                            "quote": sentence.strip()})
+            elif re.search(r"\bfor (later|now)\b", sentence):
+                out.append({"excerpt": int(n), "kind": "promise", "text": sentence.strip(" ."), "because": "",
+                            "quote": sentence.strip()})
+    return {"notes": out}
 
 
 def _rules(user):
@@ -452,6 +472,8 @@ path = "{sources_root}/studio/projects"
     embed.build_moves(con)
     embed.embed_moves(con, log=lambda m: None)
     analyze.analyze(lambda: db.connect(cfg.db_path), backend="fixture", workers=1, log=lambda m: None)
+    from . import notes
+    notes.take(lambda: db.connect(cfg.db_path), backend="fixture", workers=1, log=lambda m: None)
     link.build_lines(con, backend="fixture", workers=1, log=lambda m: None)
     log(f"demo store: {cfg.db_path}")
     return cfg_path

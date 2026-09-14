@@ -48,12 +48,39 @@ def cmd_verify(args, con):
     verify.verify(lambda: db.connect(args.db), backend=args.backend, workers=args.workers)
 
 
+def cmd_notes(args, con):
+    from . import notes
+    if notes.take(lambda: db.connect(args.db), backend=args.backend, workers=args.workers):
+        sys.exit(1)
+
+
+def cmd_decisions(args, con):
+    from . import notes
+    kind = "promise" if args.cmd == "promises" else "decision"
+    items = notes.search(con, kind, " ".join(args.q) or None, open_only=kind == "promise" and not args.all,
+                         limit=args.limit)
+    if args.json:
+        print(json.dumps(items, indent=1, ensure_ascii=False))
+        return
+    for i in items:
+        print(f"\n{i['ts'][:10]}  {i['text']}  [{i['project']} · {i['idea']}]")
+        if i["because"]:
+            print(f"  because {i['because']}")
+        print(f"  “{i['quote'][:200]}”")
+        if i["resume"]:
+            print(f"  {i['resume']}")
+    if not items:
+        print(f"no {kind}s" + (" found" if args.q else " yet — run `kifu notes` once"))
+
+
 def cmd_run(args, con):
     """Everything, incrementally: only new or changed sessions cost model time."""
     sources.pull()
     extract.scan_archive(con)
     cmd_embed(args, con)
     failed = analyze.analyze(lambda: db.connect(args.db), backend=args.backend, workers=args.workers)
+    from . import notes
+    failed += notes.take(lambda: db.connect(args.db), backend=args.backend, workers=args.workers)
     link.build_lines(con, backend=args.backend, workers=args.workers)
     verify.verify(lambda: db.connect(args.db), backend=args.backend, workers=args.workers)
     if failed:
@@ -259,7 +286,8 @@ def main(argv=None):
     for name, help_ in (("analyze", "list each session's threads and loose ends with a model"),
                         ("link", "follow the same idea across sessions"),
                         ("verify", "check open ideas against git: later commits, settled loose ends"),
-                        ("run", "pull, scan, embed, analyze, link and verify: only new work costs model time")):
+                        ("notes", "decisions and the assistant's promises, from turns that mention them"),
+                        ("run", "pull, scan, embed, analyze, notes, link and verify: only new work costs model time")):
         s = sub.add_parser(name, help=help_)
         s.add_argument("--backend", choices=sorted(analyze.BACKENDS))
         s.add_argument("--workers", type=int)
@@ -300,6 +328,14 @@ def main(argv=None):
             s.add_argument("--bare", action="store_true", help="without the instruction for a new session")
         else:
             s.add_argument("--print", action="store_true", help="print the brief instead of starting claude")
+    for name, help_ in (("decisions", "decisions made in sessions, with their reasons"),
+                        ("promises", "what the assistant said it would do later, still open")):
+        s = sub.add_parser(name, help=help_)
+        s.add_argument("q", nargs="*", help="words that must all appear")
+        s.add_argument("--limit", type=int, default=30)
+        s.add_argument("--json", action="store_true")
+        if name == "promises":
+            s.add_argument("--all", action="store_true", help="also promises later sessions went on from")
     s = sub.add_parser("rules", help="corrections you keep repeating, as rules for CLAUDE.md (one model call)")
     s.add_argument("--backend", choices=sorted(analyze.BACKENDS))
     s.add_argument("--refresh", action="store_true", help="ask again even when nothing changed")
@@ -329,7 +365,8 @@ def main(argv=None):
      "verify": cmd_verify, "run": cmd_run, "ideas": cmd_ideas, "sessions": cmd_sessions, "show": cmd_show, "threads": cmd_threads,
      "serve": cmd_serve, "report": cmd_report, "demo": cmd_demo, "config": cmd_config,
      "redact": cmd_redact, "mcp": cmd_mcp, "brief": cmd_brief, "resume": cmd_resume, "drain": cmd_drain,
-     "install": cmd_install, "reclassify": cmd_reclassify, "memory-check": cmd_memory_check, "blame": cmd_blame, "rules": cmd_rules}[args.cmd](args, con)
+     "install": cmd_install, "reclassify": cmd_reclassify, "memory-check": cmd_memory_check, "blame": cmd_blame, "rules": cmd_rules, "notes": cmd_notes,
+     "decisions": cmd_decisions, "promises": cmd_decisions}[args.cmd](args, con)
 
 
 if __name__ == "__main__":

@@ -36,6 +36,13 @@ TOOLS = [
      "description": "A compact brief to continue an idea in this session: open loose ends, what changed since, "
                     "files to look at. Accepts an anchor or search words.",
      "inputSchema": _schema({"idea": {"type": "string", "description": "anchor or words from the title"}}, ["idea"])},
+    {"name": "kifu_decisions",
+     "description": "Decisions made in the user's earlier sessions and why (\"SQLite instead of Postgres, because…\"), "
+                    "or what the assistant promised to do later and never did. Use before reversing a design choice, "
+                    "or when the user asks why something was done a certain way.",
+     "inputSchema": _schema({"query": {"type": "string", "description": "words that must all appear"},
+                             "kind": {"type": "string", "enum": ["decision", "promise"], "description": "default decision"},
+                             "limit": {"type": "integer", "description": "1-30, default 10"}})},
     {"name": "kifu_why",
      "description": "Why code exists: for lines of a file, the earlier session and the user's own prompt that "
                     "wrote them, the idea they belonged to, and the commit. Use before changing code whose intent "
@@ -57,6 +64,12 @@ def call(name, args):
     con = db.connect()
     if name == "kifu_why":
         return _why(con, args)
+    if name == "kifu_decisions":
+        from . import notes
+        kind = args.get("kind") or "decision"
+        items = notes.search(con, kind, args.get("query"), open_only=kind == "promise",
+                             limit=max(1, min(int(args.get("limit") or 10), 30)))
+        return {"kind": kind, "items": items}
     data = report.collect(con, habits_data={})
     if name == "kifu_ideas":
         limit = max(1, min(int(args.get("limit") or 8), 20))

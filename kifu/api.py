@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from . import __version__, config, db, habits, marks, report
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-JOB_KINDS = ("pull", "scan", "embed", "analyze", "link", "verify", "run", "drain")
+JOB_KINDS = ("pull", "scan", "embed", "analyze", "notes", "link", "verify", "run", "drain")
 
 @contextlib.asynccontextmanager
 async def _lifespan(_app):
@@ -279,6 +279,18 @@ def get_rules():
             "created": row["created"]}
 
 
+@app.get("/api/decisions", summary="Decisions made in sessions, with their reasons and ideas")
+def decisions(q: str | None = None, limit: int = Query(50, le=500)):
+    from . import notes
+    return notes.search(con(), "decision", q, limit=limit)
+
+
+@app.get("/api/promises", summary="What the assistant said it would do later; open ones unless all=true")
+def promises(q: str | None = None, all: bool = False, limit: int = Query(50, le=500)):
+    from . import notes
+    return notes.search(con(), "promise", q, open_only=not all, limit=limit)
+
+
 @app.get("/api/memory-check", summary="Memory and CLAUDE.md files that name paths, files or projects which are gone")
 def memory_check():
     from . import memcheck
@@ -383,7 +395,7 @@ def _run_job(job):
 
 
 @app.post("/api/jobs", status_code=202, summary="Start pull, scan, embed, analyze, link or run in the background")
-def start_job(kind: Literal["pull", "scan", "embed", "analyze", "link", "verify", "run", "drain"] = Body(..., embed=True)):
+def start_job(kind: Literal["pull", "scan", "embed", "analyze", "notes", "link", "verify", "run", "drain"] = Body(..., embed=True)):
     job = _start(kind)
     if job is None:
         with _jobs_lock:

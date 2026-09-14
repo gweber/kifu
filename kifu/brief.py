@@ -51,6 +51,13 @@ def build(con, line, data, with_instruction=True):
         out += ["", "In my own words at the time:"] + [f"> {q}" for q in quotes[:3]]
     if open_loose:
         out += ["", "Still open:"] + [f"- {x}" for x in open_loose]
+    promised = [p for p in line.get("promises", []) if p.get("open")]
+    if promised:
+        out += ["", "The assistant said it would come back to:"] + [f"- {p['text']}" for p in promised]
+    if line.get("decisions"):
+        out += ["", "Decisions made along the way (the reasons matter before changing them):"]
+        out += [f"- {d['text']}" + (f" — because {d['because'][:1].lower()}{d['because'][1:]}" if d["because"] else "")
+                for d in line["decisions"][-8:]]
     if settled:
         out += ["", "Looks settled by later commits:"] + [f"- {x}" for x in line["loose"] if x in settled]
     if line["next"]:

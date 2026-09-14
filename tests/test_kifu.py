@@ -796,3 +796,43 @@ def test_rules_need_real_repetition_across_sessions(store, tmp_path, monkeypatch
     again = rules.suggest(con, backend="fixture", root=str(tmp_path / "claude"), log=lambda m: None)
     assert again["cached"] and len(calls) == 1, "unchanged input costs no second call"
     assert "3 times in 3 sessions" in rules.format_text(result)
+
+
+# ---- decisions and promises --------------------------------------------------------------------------------
+
+def test_decisions_and_promises_attach_to_their_idea(store):
+    from kifu import brief, notes
+    cfg, con = store
+    data = report.collect(con, habits_data={})
+    offline = next(l for l in data["lines"] if l["title"] == "Offline mode for tidepool")
+    assert [d["text"] for d in offline["decisions"]] == ["I went with Svelte instead of React"]
+    assert offline["decisions"][0]["because"] == "the bundle stays small on a phone at the beach"
+    assert [p["open"] for p in offline["promises"]] == [False], "a later session went on with the idea"
+    assert notes.search(con, "decision", "svelte")[0]["idea"] == "Offline mode for tidepool"
+    # The same promise in the idea's last session is open, until the idea is done.
+    only_first = {**offline, "threads": offline["threads"][:1], "mark": None}
+    notes.for_lines(con, [only_first])
+    assert [p["open"] for p in only_first["promises"]] == [True]
+    assert "The assistant said it would come back to:" in brief.build(con, only_first, data)
+    assert report.compact(only_first, data)["open_promises"] == ["The offline cache I left for later, it needs its own pass"]
+    done = {**only_first, "mark": {"state": "done"}}
+    notes.for_lines(con, [done])
+    assert [p["open"] for p in done["promises"]] == [False], "a done idea keeps no open promises"
+
+
+def test_notes_read_only_changed_sessions(store):
+    from kifu import notes
+    cfg, con = store
+    calls = []
+    real = analyze.BACKENDS["fixture"]
+    analyze.BACKENDS["fixture"] = lambda s, u, schema: calls.append(u) or real(s, u, schema)
+    try:
+        assert notes.take(lambda: db.connect(cfg.db_path), backend="fixture", workers=1, log=lambda m: None) == 0
+        assert calls == [], "every session was read when the store was built"
+        con.execute("UPDATE sessions SET digest_hash='changed' WHERE ai_title='Tide prediction API'")
+        con.commit()
+        notes.take(lambda: db.connect(cfg.db_path), backend="fixture", workers=1, log=lambda m: None)
+        assert len(calls) == 1 and "instead of React" in calls[0]
+    finally:
+        analyze.BACKENDS["fixture"] = real
+    assert notes.excerpt("x" * 2000 + " we chose A instead of B " + "y" * 2000).count("instead of") == 1
