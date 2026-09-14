@@ -45,6 +45,7 @@ def collect(con, habits_data=None):
             "loose": json.loads(l["loose_ends"] or "[]"), "next": l["next_step"] or "",
             "kinds": sorted({t["kind"] for t in members}),
             "tools": sorted({by_id[t["session_id"]]["tool"] for t in members if t["session_id"] in by_id}),
+            "journey": journey(members, by_id),
             "threads": [{"session": t["session_id"], "title": t["title"], "status": t["status"], "kind": t["kind"],
                          "first": t["first_ts"], "last": t["last_ts"], "quote": t["quote"],
                          "loose": json.loads(t["loose_ends"] or "[]"), "key": thread_key(t),
@@ -69,10 +70,52 @@ def collect(con, habits_data=None):
         "marked": sum(1 for l in lines if l["mark"]),
         "areas": sorted({a for l in lines if l["score"] > 0 for a in l["areas"] if is_project(a)}),
         "tools": sorted({t for l in lines if l["score"] > 0 for t in l["tools"]}),
+        "handoffs": handoffs(lines),
         "now": con.execute("SELECT MAX(ended) FROM sessions").fetchone()[0],
     }
     return {"lines": lines, "sessions": sess, "stats": stats,
             "habits": habits_data if habits_data is not None else habits.compute(con)}
+
+
+def journey(members, by_id):
+    """The tools an idea went through, in order: consecutive sessions in the same tool are one step.
+    Empty when the idea stayed in one tool."""
+    steps = []
+    for t in members:
+        s = by_id.get(t["session_id"])
+        if not s:
+            continue
+        if steps and steps[-1]["tool"] == s["tool"]:
+            steps[-1]["until"] = max(steps[-1]["until"], t["last_ts"] or t["first_ts"])
+            steps[-1]["sessions"].add(s["id"])
+        else:
+            steps.append({"tool": s["tool"], "from": t["first_ts"], "until": t["last_ts"] or t["first_ts"],
+                          "sessions": {s["id"]}})
+    if len(steps) < 2:
+        return []
+    return [{**step, "sessions": len(step["sessions"])} for step in steps]
+
+
+def handoffs(lines):
+    """How often an idea moved from one tool to the next (a chat to a coding agent, one agent to another), and
+    what became of those ideas."""
+    pairs = {}
+    for l in lines:
+        seen = set()
+        for a, b in zip(l["journey"], l["journey"][1:]):
+            key = (a["tool"], b["tool"])
+            if key in seen:
+                continue
+            seen.add(key)
+            p = pairs.setdefault(key, {"from": a["tool"], "to": b["tool"], "ideas": 0, "shipped": 0, "open": 0,
+                                       "examples": []})
+            p["ideas"] += 1
+            p["shipped"] += l["status"] == "shipped" or (l["mark"] or {}).get("state") == "done"
+            p["open"] += l["score"] > 0 and not l["mark"]
+            p["examples"].append({"anchor": l["anchor"], "title": l["title"], "last": l["last"], "at": b["from"]})
+    for p in pairs.values():
+        p["examples"] = sorted(p["examples"], key=lambda e: e["at"], reverse=True)[:5]
+    return sorted(pairs.values(), key=lambda p: p["ideas"], reverse=True)
 
 
 CALIBRATE_AFTER = 10       # marks before the user's own verdicts start to shift scores
@@ -136,6 +179,7 @@ def compact(line, data):
     latest = sessions.get(line["threads"][-1]["session"]) if line["threads"] else None
     return {"anchor": line["anchor"], "title": line["title"], "status": line["status"], "project": line["project"],
             "tools": line["tools"], "kinds": line["kinds"],
+            "journey": " → ".join(step["tool"] for step in line["journey"]) or None,
             "areas": line["areas"], "first": line["first"][:10], "last": line["last"][:10],
             "quiet_days": quiet_days(line, data["stats"]["now"]), "sessions": line["n_sessions"],
             "score": line["score"], "open": line["score"] > 0 and not line["mark"],

@@ -643,3 +643,18 @@ def test_memory_check_finds_what_memory_points_at_that_is_gone(store, tmp_path):
     missing = next(f for f in memcheck.check(con, root=str(claude)) if f["kind"] == "missing-path")
     assert missing["moved_to"] == f"{code}/tides/make.sh" and not missing["moved_exists"]
     assert all(memcheck.describe(f) for f in found)
+
+
+def test_an_idea_that_moved_between_tools_shows_its_journey(store):
+    cfg, con = store
+    data = report.collect(con, habits_data={})
+    line = next(l for l in data["lines"] if len({t["session"] for t in l["threads"]}) >= 2)
+    assert line["journey"] == [], "one tool: no journey"
+    first = line["threads"][0]["session"]
+    con.execute("UPDATE sessions SET tool='hermes' WHERE id=?", (first,))
+    data = report.collect(con, habits_data={})
+    line = next(l for l in data["lines"] if l["anchor"] == line["anchor"])
+    assert [j["tool"] for j in line["journey"]][:2] == ["hermes", "claude"]
+    pair = next(p for p in data["stats"]["handoffs"] if (p["from"], p["to"]) == ("hermes", "claude"))
+    assert pair["ideas"] >= 1 and any(e["anchor"] == line["anchor"] for e in pair["examples"])
+    assert report.compact(line, data)["journey"].startswith("hermes → claude")

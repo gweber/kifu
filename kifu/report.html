@@ -275,6 +275,7 @@ function card(l, open = false) {
       <span>${esc(l.status)}</span><span>${l.areas.map(esc).join(", ")}</span>
       <span>${fmt(l.first)}${l.first.slice(0, 10) !== l.last.slice(0, 10) ? " → " + fmt(l.last) : ""}</span>
       <span>${l.n_sessions} session${l.n_sessions > 1 ? "s" : ""}</span>
+      ${(l.journey || []).length ? `<span title="${esc(l.journey.map(j => `${j.tool}: ${fmt(j.from)}, ${j.sessions} session${j.sessions > 1 ? "s" : ""}`).join("\n"))}">${esc(l.journey.map(j => j.tool).join(" → "))}</span>` : ""}
       <span>quiet ${quiet} day${quiet === 1 ? "" : "s"}</span>
       ${l.score ? `<span class="score"${l.calibration ? ` title="${esc(l.calibration.reason)}"` : ""}>aji ${l.score}${l.calibration ? ` (×${l.calibration.factor} from your marks)` : ""}</span>` : ""}
     </div>
@@ -535,6 +536,10 @@ function renderHabits() {
     `<div class="tablewrap"><table class="data"><tr><th>day</th><th>switches</th><th>sessions</th><th>prompts</th></tr>${H.juggling.busiest.map(d =>
       `<tr><td>${fmt(d.day + "T12:00")}</td><td>${d.switches}</td><td>${d.sessions}</td><td>${d.prompts}</td></tr>`).join("")}</table></div>`);
   html += `</div>`;
+  const moves = st.handoffs || [];
+  if (moves.length) html += chart("Ideas that changed tools", "An idea that started in one tool and went on in another: a chat that became code, or work handed from one agent to the next.",
+    `<div class="tablewrap"><table class="data"><tr><th>from → to</th><th>ideas</th><th>shipped or done</th><th>still open</th><th>latest</th></tr>${moves.map(p =>
+      `<tr><td>${esc(p.from)} → ${esc(p.to)}</td><td>${p.ideas}</td><td>${p.shipped}</td><td>${p.open}</td><td>${p.examples.slice(0, 2).map(e => `${fmt(e.at)} “${esc(e.title)}”`).join("<br>")}</td></tr>`).join("")}</table></div>`);
   html += chart("How long ideas live", `${H.ideas.n} ideas, ${H.ideas.multi_session} of them came back in a later session.`,
     `<div class="tablewrap"><table class="data"><tr><th>status</th><th>ideas</th><th>median days first to last touch</th><th>done within a day</th></tr>${H.ideas.by_status.map(r =>
       `<tr><td><span class="stone s-${r.status}"></span> ${r.status}</td><td>${r.n}</td><td>${r.median_days}</td><td>${pct(r.same_day, r.n)}%</td></tr>`).join("")}</table></div>`);

@@ -5,6 +5,9 @@
 - **`kifu memory-check`** (and `/api/memory-check`): memory and CLAUDE.md files that name paths which are gone, memory
   files the MEMORY.md index does not load, and memory folders of projects that no longer exist, with where the
   project's files are written now. Paths of other machines are skipped (sources, `~/.ssh/config` hosts, `other_hosts`).
+- **Journeys between tools:** an idea that went from one tool to another (a Hermes chat that became Claude Code
+  work, Cline to Codex) shows its path on the card (`journey`), and the Habits tab counts each handoff with how many
+  of those ideas shipped and how many are still open (`stats.handoffs`).
 
 ## 0.3.2 — 2026-09-14
 
