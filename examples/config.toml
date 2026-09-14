@@ -7,6 +7,8 @@ project_roots = ["~/code"]                # ~/code/tidepool is shown as tidepool
 # confirmations = ["weiter", "passt"]     # "go on" in your own words
 # redact = true                           # remove secrets from session text when scanning (default)
 # redact_patterns = ["corp-[0-9a-f]{32}"] # your own token formats
+# ignore_projects = [".bench*", "tmp-*"]   # top-level folders that are not projects (?, ~, /tmp*, _* always)
+# tool_weights = { hermes = 0.5 }          # chat assistants' ideas rank lower (the default)
 
 # Where Claude Code keeps sessions. Without [[sources]], only this machine's ~/.claude/projects.
 [[sources]]

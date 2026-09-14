@@ -321,6 +321,10 @@ def fixture_backend(system, user, schema):
         return _consolidate(user)
     if "settled" in schema.get("properties", {}):
         return _judge(user)
+    if "personal" in schema.get("properties", {}):
+        entries = re.findall(r"^(\d+)\. (.*)$", user, re.M)
+        return {"personal": [int(n) for n, text in entries
+                             if re.search(r"\b(evening|birthday|dinner|greeting|weekend with)\b", text, re.I)]}
     title = re.match(r"Session: (.*?) \|", user).group(1)
     spec = _by_title()[title]
     moves = re.findall(r"\[M(\d+) [^\]]*\]\nUSER: (.*?)\nASSISTANT", user, re.S)

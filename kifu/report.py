@@ -5,7 +5,7 @@ import os
 import socket
 
 from . import config, habits, verify
-from .extract import area_of
+from .extract import area_of, is_project
 from .link import thread_key
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "report.html")
@@ -44,6 +44,7 @@ def collect(con, habits_data=None):
             "n_sessions": l["n_sessions"], "score": l["score"], "verdict": l["verdict"] or "",
             "loose": json.loads(l["loose_ends"] or "[]"), "next": l["next_step"] or "",
             "kinds": sorted({t["kind"] for t in members}),
+            "tools": sorted({by_id[t["session_id"]]["tool"] for t in members if t["session_id"] in by_id}),
             "threads": [{"session": t["session_id"], "title": t["title"], "status": t["status"], "kind": t["kind"],
                          "first": t["first_ts"], "last": t["last_ts"], "quote": t["quote"],
                          "loose": json.loads(t["loose_ends"] or "[]"), "key": thread_key(t),
@@ -66,7 +67,8 @@ def collect(con, habits_data=None):
         "open": sum(1 for l in lines if l["score"] > 0 and not l["mark"]),
         "loose": sum(len(l["loose"]) for l in lines if l["score"] > 0 and not l["mark"]),
         "marked": sum(1 for l in lines if l["mark"]),
-        "areas": sorted({a for l in lines if l["score"] > 0 for a in l["areas"]}),
+        "areas": sorted({a for l in lines if l["score"] > 0 for a in l["areas"] if is_project(a)}),
+        "tools": sorted({t for l in lines if l["score"] > 0 for t in l["tools"]}),
         "now": con.execute("SELECT MAX(ended) FROM sessions").fetchone()[0],
     }
     return {"lines": lines, "sessions": sess, "stats": stats,
@@ -133,6 +135,7 @@ def compact(line, data):
     sessions = {s["id"]: s for s in data["sessions"]}
     latest = sessions.get(line["threads"][-1]["session"]) if line["threads"] else None
     return {"anchor": line["anchor"], "title": line["title"], "status": line["status"], "project": line["project"],
+            "tools": line["tools"], "kinds": line["kinds"],
             "areas": line["areas"], "first": line["first"][:10], "last": line["last"][:10],
             "quiet_days": quiet_days(line, data["stats"]["now"]), "sessions": line["n_sessions"],
             "score": line["score"], "open": line["score"] > 0 and not line["mark"],

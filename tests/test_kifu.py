@@ -546,3 +546,51 @@ def test_verify_explains_a_session_without_working_directory(store):
     con.commit()
     result = verify.check_line(con, line, verify.hosts())
     assert result["error"] == "the session recorded no working directory"
+
+
+# ---- chat tools, private conversation, real projects -------------------------------------------------------
+
+def test_chat_tools_rank_lower_unless_the_idea_also_lives_in_a_coding_agent(store):
+    now, last = "2026-03-01T12:00:00", "2026-02-01T12:00:00"
+    base = link.score_line("proposed", ["idea"], 2, 1, last, now, tools=["claude"])
+    assert abs(link.score_line("proposed", ["idea"], 2, 1, last, now, tools=["hermes"]) - base * 0.5) <= 0.01
+    assert link.score_line("proposed", ["idea"], 2, 1, last, now, tools=["claude", "hermes"]) == base
+    assert 0 < link.score_line("proposed", ["personal"], 2, 1, last, now) < base * 0.1
+
+
+def test_only_real_projects_are_offered(store):
+    cfg, _ = store
+    cfg.ignore_projects = [".bench*"]
+    assert extract.is_project("tidepool") and extract.is_project(".hermes")
+    for area in ("?", "~", "code", "/tmp", "_e2e3", ".bench-dsh-eval", ""):
+        assert not extract.is_project(area), area
+
+
+def test_reclassify_moves_private_conversation_out_of_the_ideas(store):
+    cfg, con = store
+    sid = one(con, "SELECT session_id FROM threads WHERE title='Weekend low-tide push alerts'")
+    con.execute("UPDATE sessions SET tool='hermes' WHERE id=?", (sid,))
+    con.execute("UPDATE threads SET title='Evening plans with the kids' WHERE title='Fix DST offset in tide chart'")
+    con.execute("UPDATE threads SET status='proposed' WHERE title='Evening plans with the kids'")
+    con.commit()
+    link.build_lines(con, backend="fixture", workers=1, log=lambda m: None)
+    assert one(con, "SELECT score FROM lines WHERE title='Evening plans with the kids'") > 0
+    from kifu import reclassify
+    assert reclassify.reclassify(con, backend="fixture", log=lambda m: None) == 1
+    assert one(con, "SELECT kind FROM threads WHERE title='Evening plans with the kids'") == "personal"
+    evening = one(con, "SELECT score FROM lines WHERE title='Evening plans with the kids'")
+    assert 0 < evening < min(r[0] for r in con.execute("SELECT score FROM lines WHERE score > 0 AND title != 'Evening plans with the kids'"))
+    assert reclassify.reclassify(con, backend="fixture", log=lambda m: None) == 0, "each thread is reviewed once"
+
+
+def test_api_filters_by_tool_and_lists_only_real_projects(client, store):
+    _, con = store
+    sid = one(con, "SELECT session_id FROM threads WHERE title='Opening book from own games'")
+    con.execute("UPDATE sessions SET tool='codex' WHERE id=?", (sid,))
+    con.commit()
+    from kifu import api
+    api._cache.clear()
+    codex = client.get("/api/lines", params={"open": "true", "tool": "codex"}).json()
+    assert [i["title"] for i in codex["items"]] == ["Opening book from own games"]
+    stats = client.get("/api/stats").json()
+    assert "codex" in stats["tools"] and all(extract.is_project(a) for a in stats["areas"])

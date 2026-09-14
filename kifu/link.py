@@ -18,7 +18,8 @@ DISTANCE = 0.30           # cosine distance for "same idea"; the LLM splits grou
 FORK_BONUS = 0.08         # threads of forked/resumed sessions count as closer
 OPEN = ("proposed", "started", "parked")
 KIND_WEIGHT = {"project": 1.0, "feature": 1.0, "idea": 1.2, "research": 0.9, "fix": 0.6, "ops": 0.5,
-               "question": 0.3, "chore": 0.1}
+               "question": 0.3, "chore": 0.1,
+               "personal": 0.05}     # the classification can be wrong: kept findable at the bottom, hidden by default
 
 LINE_SCHEMA = {
     "type": "object",
@@ -126,15 +127,21 @@ def group(con):
     return {r["id"]: lab for r, lab in zip(rows, labels)}, forced
 
 
-def score_line(status, kinds, n_loose, n_sessions, last_ts, now_ts):
+def tool_weight(tools):
+    """A line keeps the highest weight among its tools: an idea also worked on in Claude Code is not a chat idea."""
+    weights = config.get().tool_weights
+    return max((weights.get(t or "claude", 1.0) for t in tools), default=1.0)
+
+
+def score_line(status, kinds, n_loose, n_sessions, last_ts, now_ts, tools=("claude",)):
     """Aji: how much potential is left on the board. Open, substantial, spread out, quietly forgotten."""
     if status not in OPEN:
         return 0.0
     days_quiet = (np.datetime64(now_ts[:19]) - np.datetime64(last_ts[:19])) / np.timedelta64(1, "D")
     quiet = min(days_quiet, 45) / 45                      # longer silence, more buried
     weight = max(KIND_WEIGHT.get(k, 0.5) for k in kinds)
-    return round(weight * (1 + min(n_loose, 6) * 0.5) * (1 + 0.6 * min(n_sessions - 1, 4)) * (0.5 + quiet)
-                 * (0.7 if status == "parked" else 1.0), 2)
+    return round(weight * tool_weight(tools) * (1 + min(n_loose, 6) * 0.5) * (1 + 0.6 * min(n_sessions - 1, 4))
+                 * (0.5 + quiet) * (0.7 if status == "parked" else 1.0), 2)
 
 
 def group_key(thread_ids):
@@ -149,7 +156,7 @@ def build_lines(con, backend=None, workers=None, log=print):
     log(f"embedded {embed_threads(con)} new threads")
     labels, forced = group(con)
     threads = {t["id"]: t for t in con.execute(
-        "SELECT t.*, s.project, s.cwd FROM threads t JOIN sessions s ON s.id=t.session_id")}
+        "SELECT t.*, s.project, s.cwd, s.tool FROM threads t JOIN sessions s ON s.id=t.session_id")}
     groups = {}
     for tid, lab in labels.items():
         groups.setdefault(lab, []).append(threads[tid])
@@ -163,7 +170,7 @@ def build_lines(con, backend=None, workers=None, log=print):
                "project": members[-1]["project"],
                "first_ts": members[0]["first_ts"], "last_ts": max(t["last_ts"] for t in members),
                "n_sessions": len({t["session_id"] for t in members}),
-               "kinds": [t["kind"] for t in members]}
+               "kinds": [t["kind"] for t in members], "tools": sorted({t["tool"] or "claude" for t in members})}
         latest = members[-1]
         if row["n_sessions"] == 1 and len(members) == 1:
             row.update(title=latest["title"], summary=latest["summary"], status=latest["status"],
@@ -215,6 +222,7 @@ def build_lines(con, backend=None, workers=None, log=print):
             t = threads[tid]
             rows.append({"thread_ids": [tid], "areas": [area_of(t["project"])], "project": t["project"],
                          "first_ts": t["first_ts"], "last_ts": t["last_ts"], "n_sessions": 1, "kinds": [t["kind"]],
+                         "tools": [t["tool"] or "claude"],
                          "title": t["title"], "summary": t["summary"], "status": t["status"],
                          "loose_ends": json.loads(t["loose_ends"] or "[]"), "next_step": t["next_step"], "verdict": "",
                          "input_hash": row.get("input_hash") + ":split" if row.get("input_hash") else None})
@@ -227,7 +235,8 @@ def build_lines(con, backend=None, workers=None, log=print):
             row.update(title=t["title"], summary=t["summary"], status=t["status"],
                        loose_ends=json.loads(t["loose_ends"] or "[]"), next_step=t["next_step"], verdict="")
             row.pop("input_hash", None)
-        score = score_line(row["status"], row["kinds"], len(row["loose_ends"]), row["n_sessions"], row["last_ts"], now_ts)
+        score = score_line(row["status"], row["kinds"], len(row["loose_ends"]), row["n_sessions"], row["last_ts"], now_ts,
+                           row["tools"])
         first = min((threads[tid] for tid in row["thread_ids"]), key=lambda t: t["first_ts"])
         # session:turn alone collides when one move holds two ideas; the title hash tells them apart.
         anchor = f"{first['session_id']}:{first['first_turn']}:{hashlib.sha1(first['title'].encode()).hexdigest()[:6]}"

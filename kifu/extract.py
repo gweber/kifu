@@ -318,6 +318,21 @@ def project_name(cwd, roots=None):
     return rel
 
 
+DEFAULT_IGNORED_PROJECTS = ["?", "~", "/tmp*", "/var/*", "/private/*", "_*"]
+
+
+def is_project(area):
+    """Whether an area names a real project, or a place sessions merely ran in (home, tmp, benchmarks)."""
+    import fnmatch
+    if not area:
+        return False
+    cfg = config.get()
+    roots = {re.sub(r"^(?:~|/(?:home|Users)/[^/]+)/?", "", r).strip("/") for r in cfg.project_roots}
+    if area in roots:
+        return False                    # a session started in ~/code itself
+    return not any(fnmatch.fnmatch(area, pattern) for pattern in DEFAULT_IGNORED_PROJECTS + cfg.ignore_projects)
+
+
 def area_of(project):
     """Top-level project: tidepool/web/frontend -> tidepool."""
     return project.split("/")[0]

@@ -22,7 +22,7 @@ CHUNK_CHARS = 110_000     # ~35k tokens of digest per request
 PROMPT_VERSION = "3"      # bump when the prompt changes enough to justify re-reading every session
 
 STATUSES = ["shipped", "started", "proposed", "parked", "dropped", "answered"]
-KINDS = ["project", "feature", "idea", "research", "question", "fix", "ops", "chore"]
+KINDS = ["project", "feature", "idea", "research", "question", "fix", "ops", "chore", "personal"]
 
 THREAD_SCHEMA = {
     "type": "object",
@@ -65,6 +65,8 @@ List the threads of the session: each distinct idea, feature, project, investiga
 - Merge moves that serve the same goal into one thread. Do not make a thread per move.
 - Routine chores (commit and push, update the docs, restart a service) are not threads unless they are the point of the session.
 - A question that was answered and led nowhere is kind "question", status "answered".
+- Private or social conversation — plans with family or friends, greetings, small talk, feelings, the
+  assistant's persona — is kind "personal": note it briefly, it is not work to pick up again.
 - status: shipped = built and committed or deployed; started = work began but did not finish;
   proposed = raised or agreed but no work happened; parked = explicitly postponed ("later", "not now");
   dropped = explicitly abandoned or replaced.

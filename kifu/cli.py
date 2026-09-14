@@ -201,6 +201,11 @@ def cmd_install(args, con):
     claude_code.install(uninstall=args.uninstall, dry_run=args.dry_run)
 
 
+def cmd_reclassify(args, con):
+    from . import reclassify
+    reclassify.reclassify(con, tools=args.tool or None, backend=args.backend)
+
+
 def cmd_config(args, con):
     cfg = config.get()
     out = dataclasses.asdict(cfg)
@@ -254,6 +259,9 @@ def main(argv=None):
     sub.add_parser("config", help="print the effective settings")
     sub.add_parser("redact", help="remove secrets from a database filled before redaction existed")
     sub.add_parser("mcp", help="MCP server over stdio, for Claude Code")
+    s = sub.add_parser("reclassify", help="move private conversation out of the ideas (chat tools by default)")
+    s.add_argument("--tool", action="append", help="tool to review, repeatable (default: tools weighted below 1)")
+    s.add_argument("--backend", choices=sorted(analyze.BACKENDS))
     sub.add_parser("hook", help="Claude Code hooks: kifu hook session-start | session-end")
     for name, help_ in (("brief", "a brief for picking an idea up again"),
                         ("resume", "start a new Claude Code session from an idea's brief")):
@@ -282,7 +290,7 @@ def main(argv=None):
      "verify": cmd_verify, "run": cmd_run, "ideas": cmd_ideas, "sessions": cmd_sessions, "show": cmd_show, "threads": cmd_threads,
      "serve": cmd_serve, "report": cmd_report, "demo": cmd_demo, "config": cmd_config,
      "redact": cmd_redact, "mcp": cmd_mcp, "brief": cmd_brief, "resume": cmd_resume, "drain": cmd_drain,
-     "install": cmd_install}[args.cmd](args, con)
+     "install": cmd_install, "reclassify": cmd_reclassify}[args.cmd](args, con)
 
 
 if __name__ == "__main__":

@@ -61,8 +61,8 @@ def overview():
 
 
 @router.get("/lines")
-def lines(q: str = "", area: str = "", marked: str = "", limit: int = 50, offset: int = 0):
-    params = {"compact": "true", "q": q, "area": area, "limit": limit, "offset": offset}
+def lines(q: str = "", area: str = "", tool: str = "", marked: str = "", limit: int = 50, offset: int = 0):
+    params = {"compact": "true", "q": q, "area": area, "tool": tool, "limit": limit, "offset": offset}
     if marked == "true":
         params["marked"] = "true"
     else:

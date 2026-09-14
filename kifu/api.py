@@ -174,7 +174,8 @@ def _open(line):
 @app.get("/api/lines", summary="Ideas followed across sessions")
 def lines(status: str | None = Query(None, description="comma separated: shipped,started,proposed,parked,dropped,answered"),
           open_only: bool = Query(False, alias="open", description="only open, unmarked ideas"),
-          area: str | None = None, q: str | None = None, marked: bool | None = None,
+          area: str | None = None, q: str | None = None, marked: bool | None = None, tool: str | None = None,
+          personal: bool = Query(False, description="include ideas that are only private conversation"),
           compact: bool = Query(False, description="short items for agents and notifications"),
           limit: int = Query(50, le=1000), offset: int = 0):
     items = payload()["lines"]
@@ -183,10 +184,14 @@ def lines(status: str | None = Query(None, description="comma separated: shipped
         items = [l for l in items if l["status"] in wanted]
     if open_only:
         items = [l for l in items if _open(l)]
+    if not personal:
+        items = [l for l in items if not l["kinds"] or set(l["kinds"]) != {"personal"}]
     if marked is not None:
         items = [l for l in items if bool(l["mark"]) == marked]
     if area:
         items = [l for l in items if area in l["areas"]]
+    if tool:
+        items = [l for l in items if tool in l["tools"]]
     if q:
         words = q.lower().split()
         def hay(l):

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1 — 2026-09-14
+
+- **Chat assistants rank lower:** `tool_weights` (Hermes at 0.5 by default). An idea that also lives in a coding
+  agent keeps full weight. The web app and the Hermes tab filter by tool.
+- **Private conversation is not an idea:** a new kind `personal`, set by the analyzer for new sessions and by
+  `kifu reclassify` for older ones (batches of titles and summaries, each thread asked once). Personal ideas stay
+  findable at the bottom and are hidden by default, because the classification can be wrong.
+- **Only real projects in the filter:** sessions in `~`, `/tmp`, project roots or folders matched by
+  `ignore_projects` (benchmarks, test runs) are ideas without a project; the timeline gathers them in one lane.
+- **Fixes:** model refusals are recorded instead of retried on every run; verify explains ideas from sessions that
+  recorded no working directory instead of failing on them.
+
 ## 0.3.0 — 2026-09-13
 
 - **Claude Code integration** (`kifu install claude`, or the plugin in `claude-code-plugin/`): a SessionStart

@@ -173,7 +173,8 @@ table.data th:first-child, table.data td:first-child { text-align: left; }
   <div class="filters">
     <input type="search" id="q" placeholder="Search ideas, quotes, loose ends…">
     <select id="area"><option value="">All projects</option></select>
-    <label><input type="checkbox" id="minor"> show questions &amp; chores</label>
+    <select id="tool" hidden><option value="">All tools</option></select>
+    <label><input type="checkbox" id="minor"> show questions, chores &amp; personal</label>
     <label><input type="checkbox" id="marked"> show done &amp; dismissed</label>
     <span class="chip"><span class="stone s-shipped"></span>shipped</span>
     <span class="chip"><span class="stone s-started"></span>started</span>
@@ -204,7 +205,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const fmt = ts => new Date(ts).toLocaleDateString("en-GB", {day: "numeric", month: "short"});
 const days = (a, b) => Math.round((new Date(b) - new Date(a)) / 864e5);
-const MINOR = new Set(["question", "chore"]);
+const MINOR = new Set(["question", "chore", "personal"]);
 const sessById = Object.fromEntries(DATA.sessions.map(s => [s.id, s]));
 const lineById = Object.fromEntries(DATA.lines.map(l => [l.id, l]));
 const st = DATA.stats;
@@ -217,13 +218,20 @@ function renderStats() {
   ].map(([n, l]) => `<span><b>${n}</b> ${l}</span>`).join("");
 }
 renderStats();
-const areas = [...new Set(DATA.lines.flatMap(l => l.areas))].sort();
-$("#area").innerHTML += areas.map(a => `<option>${esc(a)}</option>`).join("");
+// Only real projects are offered: sessions in ~, /tmp or benchmark folders are ideas without a project.
+const PROJECTS = new Set(st.areas || []);
+$("#area").innerHTML += [...PROJECTS].map(a => `<option>${esc(a)}</option>`).join("");
+if ((st.tools || []).length > 1) {
+  $("#tool").innerHTML += st.tools.map(t => `<option>${esc(t)}</option>`).join("");
+  $("#tool").hidden = false;
+}
+const projectOf = l => l.areas.find(a => PROJECTS.has(a)) || "(no project)";
 
 function visible(l) {
   const q = $("#q").value.trim().toLowerCase();
-  const area = $("#area").value;
+  const area = $("#area").value, tool = $("#tool").value;
   if (area && !l.areas.includes(area)) return false;
+  if (tool && !(l.tools || []).includes(tool)) return false;
   if (!$("#minor").checked && l.kinds.every(k => MINOR.has(k))) return false;
   if (!q) return true;
   const hay = [l.title, l.summary, l.verdict, l.next, l.project, ...l.loose,
@@ -316,7 +324,7 @@ function renderTimeline() {
     if (d.getTime() >= t0 - 7 * 864e5) html += `<div class="tl-tick" style="left:${Math.max(110, x(d))}px">${fmt(d)}</div>`;
   html += `</div>`;
   const byArea = {};
-  for (const l of shown) (byArea[l.areas[0] || "?"] ||= []).push(l);
+  for (const l of shown) (byArea[projectOf(l)] ||= []).push(l);
   const order = Object.keys(byArea).sort((a, b) => byArea[b].length - byArea[a].length);
   for (const area of order) {
     const rows = [];
@@ -350,6 +358,7 @@ function renderSessions() {
   let html = "", lastDay = "";
   for (const s of [...DATA.sessions].reverse()) {
     if (area && s.area !== area) continue;
+    if ($("#tool").value && s.tool !== $("#tool").value) continue;
     const ideas = ideasBySession[s.id] || [];
     const hay = [s.title, s.project, ...ideas.map(([l, t]) => t.title + " " + t.quote)].join(" ").toLowerCase();
     if (q && !q.split(/\s+/).every(w => hay.includes(w))) continue;
@@ -588,7 +597,7 @@ function show(v) {
   render();
 }
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => show(b.dataset.view)));
-["#q", "#area", "#minor", "#marked"].forEach(s => $(s).addEventListener("input", render));
+["#q", "#area", "#tool", "#minor", "#marked"].forEach(s => $(s).addEventListener("input", render));
 document.addEventListener("click", async e => {
   const edit = e.target.closest("button[data-rename], button[data-merge], button[data-detach]");
   if (edit) {

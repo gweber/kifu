@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS vectors(text_hash TEXT PRIMARY KEY, vec BLOB);
 CREATE TABLE IF NOT EXISTS threads(
   id INTEGER PRIMARY KEY, session_id TEXT, title TEXT, summary TEXT, kind TEXT, status TEXT,
   first_turn INT, last_turn INT, first_ts TEXT, last_ts TEXT, quote TEXT, next_step TEXT,
-  keywords TEXT, loose_ends TEXT, backend TEXT, digest_hash TEXT, line_id INT, embedding BLOB);
+  keywords TEXT, loose_ends TEXT, backend TEXT, digest_hash TEXT, line_id INT, embedding BLOB, reviewed INT);
 CREATE INDEX IF NOT EXISTS threads_session ON threads(session_id);
 CREATE INDEX IF NOT EXISTS threads_line ON threads(line_id);
 

@@ -134,10 +134,11 @@
   }
 
   // ── open ideas ──────────────────────────────────────────────────────
-  function Ideas({ projects }) {
+  function Ideas({ projects, tools }) {
     const [q, setQ] = useState("");
     const [query, setQuery] = useState("");
     const [area, setArea] = useState("");
+    const [tool, setTool] = useState("");
     const [marked, setMarked] = useState(false);
     const [hidden, setHidden] = useState({});
     const timer = useRef(null);
@@ -148,8 +149,8 @@
       timer.current = setTimeout(() => setQuery(value), 250);
     };
     const [{ loading, error, data }, reload] = useAsync(() => SDK.fetchJSON(
-      `${API}/lines?q=${encodeURIComponent(query)}&area=${encodeURIComponent(area)}&marked=${marked}&limit=100`),
-      [query, area, marked]);
+      `${API}/lines?q=${encodeURIComponent(query)}&area=${encodeURIComponent(area)}&tool=${encodeURIComponent(tool)}&marked=${marked}&limit=100`),
+      [query, area, tool, marked]);
     const onMarked = (idea, state) => {
       if ((state === "open") === marked) setHidden((x) => ({ ...x, [idea.anchor]: true }));
     };
@@ -160,6 +161,9 @@
         h(C.Select, { value: area, onChange: (e) => setArea(e.target ? e.target.value : e) },
           h(C.SelectOption, { value: "" }, "All projects"),
           projects.map((p) => h(C.SelectOption, { key: p, value: p }, p))),
+        tools.length > 1 && h(C.Select, { value: tool, onChange: (e) => setTool(e.target ? e.target.value : e) },
+          h(C.SelectOption, { value: "" }, "All tools"),
+          tools.map((t) => h(C.SelectOption, { key: t, value: t }, t))),
         h(C.Button, { size: "sm", variant: marked ? "default" : "outline", onClick: () => { setHidden({}); setMarked(!marked); } },
           marked ? "Showing done & dismissed" : "Show done & dismissed"),
         h(C.Button, { size: "sm", variant: "ghost", onClick: () => { setHidden({}); reload(); } }, "Reload")),
@@ -233,7 +237,8 @@
     if (loading && !data) return h("div", { className: "p-4" }, h(Muted, null, "Loading…"));
     if (error) return h("div", { className: "p-4" }, h(Note, { message: error, tone: "error" }));
     const st = data.stats;
-    const projects = Array.from(new Set((data.top || []).map((i) => i.areas[0]).concat(st.areas || []))).sort();
+    const projects = st.areas || [];
+    const tools = st.tools || [];
     const TABS = [["ideas", "Open ideas"], ["habits", "How you work"]];
     return h("div", { className: "p-4" },
       h("div", { className: "mb-4 flex flex-wrap items-end justify-between gap-3" },
@@ -250,7 +255,7 @@
           h(C.TabsList, { key: "tabs" }, TABS.map(([key, label]) => h(C.TabsTrigger, {
             key, value: key, active: current === key, onClick: () => go(key) }, label))),
           h("div", { key: "panel", className: "mt-4" },
-            current === "habits" ? h(Habits, { overview: data }) : h(Ideas, { projects })),
+            current === "habits" ? h(Habits, { overview: data }) : h(Ideas, { projects, tools })),
         ];
       }));
   }
