@@ -865,3 +865,11 @@ def test_a_failed_notes_call_leaves_only_its_sessions_pending(store, monkeypatch
     monkeypatch.setitem(analyze.BACKENDS, "fixture", real)
     assert notes.take(lambda: db.connect(cfg.db_path), backend="fixture", workers=2, log=lambda m: None) == 0
     assert notes.pending(con) == [] and one(con, "SELECT COUNT(*) FROM notes WHERE text LIKE '%Svelte%'") == 1
+
+
+def test_effort_splits_a_turn_among_the_ideas_it_served(store):
+    _, con = store
+    data = report.collect(con, habits_data={})
+    total = sum(v[0] for v in report._turn_costs(con).values())
+    counted = sum(l["effort"]["minutes"] for l in data["lines"])
+    assert counted <= total + len(data["lines"]), "ideas never count more time than the turns hold (rounding aside)"

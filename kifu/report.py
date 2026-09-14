@@ -29,6 +29,7 @@ def collect(con, habits_data=None):
     by_line = {}
     for t in threads:
         by_line.setdefault(t["line_id"], []).append(t)
+    share = _turn_shares(by_line)
     marks = {m["anchor"]: dict(m) for m in con.execute("SELECT anchor, state, note, updated, title FROM marks")}
     checks = {c["anchor"]: c for c in con.execute("SELECT * FROM checks")}
     lines = []
@@ -47,7 +48,7 @@ def collect(con, habits_data=None):
             "kinds": sorted({t["kind"] for t in members}),
             "tools": sorted({by_id[t["session_id"]]["tool"] for t in members if t["session_id"] in by_id}),
             "journey": journey(members, by_id),
-            "effort": effort(members, turn_cost),
+            "effort": effort(members, turn_cost, share),
             "threads": [{"session": t["session_id"], "title": t["title"], "status": t["status"], "kind": t["kind"],
                          "first": t["first_ts"], "last": t["last_ts"], "quote": t["quote"],
                          "first_turn": t["first_turn"], "last_turn": t["last_turn"],
@@ -119,14 +120,36 @@ def _turn_costs(con):
                                     WHERE s.automated=0 AND t.dup_of IS NULL""")}
 
 
-def effort(members, turn_cost):
-    """Active minutes and tokens of the turns an idea's threads cover; a turn two threads share counts once.
-    Tokens are known for Claude Code sessions only."""
-    turns = {(t["session_id"], i) for t in members if t["first_turn"] is not None
-             for i in range(t["first_turn"], (t["last_turn"] if t["last_turn"] is not None else t["first_turn"]) + 1)}
-    costs = [turn_cost[k] for k in turns if k in turn_cost]
-    return {"minutes": round(sum(c[0] for c in costs)), "tokens_in": sum(c[1] for c in costs),
-            "tokens_out": sum(c[2] for c in costs), "tokens_cache": sum(c[3] for c in costs), "turns": len(costs)}
+def _covered(members):
+    return {(t["session_id"], i) for t in members if t["first_turn"] is not None
+            for i in range(t["first_turn"], (t["last_turn"] if t["last_turn"] is not None else t["first_turn"]) + 1)}
+
+
+def _turn_shares(by_line):
+    """How many ideas each turn belongs to: a turn serving three ideas gives each a third of its time and tokens,
+    so the ideas' effort adds up to the effort spent."""
+    counts = {}
+    for line_id, members in by_line.items():
+        if line_id is None:
+            continue
+        for key in _covered(members):
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def effort(members, turn_cost, share=None):
+    """Active minutes and tokens of the turns an idea's threads cover, each turn split evenly among the ideas it
+    belongs to. Tokens are known for Claude Code sessions only."""
+    minutes = tin = tout = tcache = 0.0
+    n = 0
+    for key in _covered(members):
+        if key not in turn_cost:
+            continue
+        part = 1 / max(1, (share or {}).get(key, 1))
+        m, i, o, c = turn_cost[key]
+        minutes, tin, tout, tcache, n = minutes + m * part, tin + i * part, tout + o * part, tcache + c * part, n + 1
+    return {"minutes": round(minutes), "tokens_in": round(tin), "tokens_out": round(tout), "tokens_cache": round(tcache),
+            "turns": n}
 
 
 QUIET_OPEN_DAYS = 30

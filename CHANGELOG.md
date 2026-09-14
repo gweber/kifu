@@ -19,7 +19,7 @@
   `kifu install claude` adds the hook.
 - **Effort:** tokens per turn and session from Claude Code transcripts (each API response counted once; subagents
   count for their session; needs `kifu scan --force` once for older sessions). Each idea shows its active time and
-  tokens, and the Habits tab shows where the time went by outcome, and the costliest ideas never finished.
+  tokens (a turn that served several ideas is split among them, so the figures add up), and the Habits tab shows where the time went by outcome, and the costliest ideas never finished.
 - **`kifu rules`** (`/api/rules`): corrections you keep repeating ("no shims", "stop pausing"), grouped by one model
   call, worded as rules, checked against CLAUDE.md files and memory, with the file each would go in. A group needs 3
   prompts from 2 sessions, counted by kifu from the prompts, not taken from the model.

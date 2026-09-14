@@ -562,7 +562,7 @@ function renderHabits() {
   if (eff && eff.by_outcome.some(b => b.minutes)) {
     const total = eff.by_outcome.reduce((a, b) => a + b.minutes, 0);
     html += `<div class="grid2">`;
-    html += chart("Where the time went", "Active time and tokens written, by what became of the ideas. Tokens are counted for Claude Code sessions.",
+    html += chart("Where the time went", "Active time (from a prompt to the last activity before a 45-minute silence; parallel sessions add up) and tokens written, by what became of the ideas. A turn that served several ideas is split among them. Tokens are counted for Claude Code sessions.",
       `<div class="tablewrap"><table class="data"><tr><th>ideas that are</th><th>ideas</th><th>time</th><th>share</th><th>tokens written</th></tr>${eff.by_outcome.map(b =>
         `<tr><td>${esc(b.outcome)}</td><td>${b.ideas}</td><td>${hours(b.minutes)}</td><td>${pct(b.minutes, total)}%</td><td>${tokens(b.tokens_out)}</td></tr>`).join("")}</table></div>`);
     html += chart("Most time, never finished", "Dropped, dismissed, parked, or quiet for a month: the ideas that took the longest.",
