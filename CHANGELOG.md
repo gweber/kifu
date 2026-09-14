@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-09-14
 
 - **`kifu memory-check`** (and `/api/memory-check`): memory and CLAUDE.md files that name paths which are gone, memory
   files the MEMORY.md index does not load, and memory folders of projects that no longer exist, with where the
