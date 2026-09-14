@@ -5,9 +5,10 @@ left behind in your Claude Code sessions, where your agent and your dashboard ca
 
 - **An Ideas tab** in the dashboard: open ideas with their loose ends, what git shows happened to their
   files since, the trail through sessions with resume commands, Done and Dismiss, and a glance at how you work.
-- **Three agent tools** — ask "what did I leave unfinished in tidepool?" or "where did the offline idea
+- **Five agent tools** — ask "what did I leave unfinished in tidepool?", "why did we pick Svelte?" or "where did the offline idea
   start?":
-  `kifu_ideas` (search open ideas), `kifu_idea` (one idea's trail), `kifu_mark` (only when you say so).
+  `kifu_ideas` (search open ideas), `kifu_idea` (one idea's trail), `kifu_decisions` (decisions and their reasons,
+  or promises never kept), `kifu_why` (the session and prompt behind lines of code), `kifu_mark` (only when you say so).
 - **`/kifu`** in any chat: the top open ideas, or `/kifu <words>`, or `/kifu digest`. No model call.
 - **A weekly digest** of ideas that went quiet, as a `no_agent` cron job: no model call, and nothing is
   sent when nothing is quiet. On Telegram it can come with buttons under each idea: Done, Dismiss, and Brief
@@ -62,7 +63,7 @@ question needs it:
 ```yaml
 tools:
   tool_search:
-    force_deferrable: [kifu_ideas, kifu_idea, kifu_mark]    # loaded on demand
+    force_deferrable: [kifu_ideas, kifu_idea, kifu_decisions, kifu_why, kifu_mark]    # loaded on demand
 
 platform_toolsets:              # only where you talk to the agent yourself
   cli: [..., kifu]

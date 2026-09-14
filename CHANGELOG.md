@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 — 2026-09-14
+
+- **Hermes plugin:** the agent tools `kifu_decisions` (decisions with their reasons, or promises never kept) and
+  `kifu_why` (the session and prompt behind lines of code), as in Claude Code's MCP server.
+
 ## 0.4.0 — 2026-09-14
 
 - **`kifu memory-check`** (and `/api/memory-check`): memory and CLAUDE.md files that name paths which are gone, memory

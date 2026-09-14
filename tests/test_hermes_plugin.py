@@ -185,3 +185,18 @@ def test_habits_slot_and_brief_endpoints(server):
         slot = json.load(r)
     assert slot["weekday"] in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun") and slot["cron"].startswith("0 ")
     assert dt.datetime.fromisoformat(slot["next"]) and "coding sessions" in slot["reason"]
+
+
+def test_decision_and_why_tools(server, tmp_path):
+    found = call(tools.decisions, query="svelte")
+    assert found["ok"] and found["items"][0]["because"] == "the bundle stays small on a phone at the beach"
+    assert call(tools.decisions, kind="promise")["ok"]
+    assert len(json.dumps(call(tools.decisions, limit=20))) < 8000, "tool results must stay small"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.py").write_text("x = 1\n")
+    for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=A", "-c", "user.email=a@example.org", "commit", "-qm", "one"]):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    why = call(tools.why, file=str(repo / "a.py"), start=1)
+    assert why["ok"] and why["ranges"][0]["commit"]["summary"] == "one" and why["ranges"][0]["prompt"] is None
+    assert call(tools.why, file=str(repo / "missing.py"))["ok"] is False

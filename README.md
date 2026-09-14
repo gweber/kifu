@@ -52,8 +52,8 @@ already gone.
     • Weekend low-tide push alerts (proposed, since 2026-08-03) — next: Daily job that checks the next 7 days
     • Offline mode for tidepool (started, since 2026-07-07) — next: Banner when cached predictions are older than a week
   ```
-- **An MCP server** with `kifu_ideas`, `kifu_idea`, `kifu_brief` and `kifu_mark`, so Claude can answer "what did I
-  leave open here?" mid-session.
+- **An MCP server** with `kifu_ideas`, `kifu_idea`, `kifu_brief`, `kifu_decisions`, `kifu_why` and `kifu_mark`, so
+  Claude can answer "what did I leave open here?", "why was this decided?" or "why does this code exist?" mid-session.
 - **`kifu resume <idea>`** starts a *new* session from a brief of the idea — what it was in your own words, the
   loose ends still open, what git shows happened since, the files it touched — on the machine it ran on.
   A fresh brief instead of a weeks-old context.
@@ -89,7 +89,7 @@ that went quiet.
 **A terminal view:** `kifu ideas`, `kifu sessions`, `kifu show <session>`, `kifu threads`.
 
 **A plugin for [Hermes Agent](https://github.com/NousResearch/hermes-agent)** — an Ideas tab in the
-dashboard, three agent tools ("what did I leave unfinished in tidepool?"), `/kifu`, and a weekly digest — on
+dashboard, five agent tools ("what did I leave unfinished in tidepool?", "why did we pick Svelte?"), `/kifu`, and a weekly digest — on
 Telegram with Done, Dismiss and Brief buttons, at the hour you usually start coding if you like.
 See [hermes-plugin/](hermes-plugin/).
 

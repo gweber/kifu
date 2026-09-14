@@ -57,6 +57,33 @@ def mark(args: dict) -> dict:
     return {"ok": True, "title": data["title"], "mark": (data["mark"] or {}).get("state", "open")}
 
 
+def decisions(args: dict) -> dict:
+    kind = args.get("kind") or "decision"
+    limit = max(1, min(int(args.get("limit") or 8), 20))
+    path = "/api/promises" if kind == "promise" else "/api/decisions"
+    status, data = client.get(path, q=args.get("query"), limit=limit)
+    if status != 200:
+        return {"ok": False, "error": f"kifu answered {status}: {data}"}
+    return {"ok": True, "kind": kind, "items": [
+        {k: d.get(k) for k in ("ts", "text", "because", "quote", "idea", "project", "anchor", "resume")} for d in data]}
+
+
+def why(args: dict) -> dict:
+    params = {"file": args["file"], "start": args.get("start"), "end": args.get("end") or args.get("start")}
+    status, data = client.get("/api/blame", **params)
+    if status != 200:
+        return {"ok": False, "error": f"kifu answered {status}: {data}"}
+    ranges = []
+    for g in data["ranges"][:20]:
+        o = g["origin"] or {}
+        ranges.append({"lines": f"{g['start']}-{g['end']}", "commit": g["commit"], "found_by": g["how"],
+                       "when": (o.get("at") or "")[:16], "tool": o.get("tool"), "project": o.get("project"),
+                       "prompt": (o.get("prompt") or "")[:400] or None, "asked_before": (o.get("asked") or "")[:400] or None,
+                       "idea": (o.get("idea") or {}).get("title"), "resume": o.get("resume")})
+    return {"ok": True, "file": data["file"], "sessions_that_wrote_it": data["sessions_that_wrote_it"],
+            "ranges": ranges, "more_ranges": max(0, len(data["ranges"]) - 20)}
+
+
 TOOLS = [
     (_schema("kifu_ideas",
              "Open ideas from the user's past Claude Code sessions: loose ends, where each stopped, how to resume. "
@@ -67,6 +94,17 @@ TOOLS = [
     (_schema("kifu_idea", "One idea's trail through sessions: quotes, loose ends, resume commands.",
              {"anchor": {"type": "string", "description": "from kifu_ideas"}}, ["anchor"]),
      idea, "🧵"),
+    (_schema("kifu_decisions",
+             "Decisions from the user's past coding sessions with their reasons, or what the assistant promised to do "
+             "later and did not. Use when they ask why something was done a certain way.",
+             {"query": {"type": "string", "description": "words that must all appear"},
+              "kind": {"type": "string", "enum": ["decision", "promise"]},
+              "limit": {"type": "integer", "description": "1-20, default 8"}}),
+     decisions, "⚖️"),
+    (_schema("kifu_why", "Why code exists: the past session and the user's prompt that wrote lines of a file "
+                         "(absolute path on the kifu machine).",
+             {"file": {"type": "string"}, "start": {"type": "integer"}, "end": {"type": "integer"}}, ["file"]),
+     why, "🔎"),
     (_schema("kifu_mark", "Mark an idea done, dismissed or open again. Only when the user says so.",
              {"anchor": {"type": "string"}, "state": {"type": "string", "enum": ["done", "dismissed", "open"]},
               "note": {"type": "string"}}, ["anchor", "state"]),

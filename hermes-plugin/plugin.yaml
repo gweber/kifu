@@ -7,13 +7,15 @@
 # The plugin holds no data. It calls a running kifu service (`kifu serve`); set its address
 # with plugins.entries.kifu.settings.url or $KIFU_URL.
 name: kifu
-version: "0.4.0"
-description: "The ideas left behind in your Claude Code sessions: an Ideas tab to triage open ideas and see how you work, agent tools to ask where an idea started, a /kifu command, and a weekly digest of ideas that went quiet."
+version: "0.4.1"
+description: "The ideas left behind in your Claude Code sessions: an Ideas tab to triage open ideas and see how you work, agent tools to ask where an idea started, why something was decided and why code exists, a /kifu command, and a weekly digest of ideas that went quiet."
 author: "Taro"
 license: "MIT"
 provides_tools:
   - kifu_ideas
   - kifu_idea
+  - kifu_decisions
+  - kifu_why
   - kifu_mark
 tags: [claude-code, ideas, productivity, sessions]
 settings:
